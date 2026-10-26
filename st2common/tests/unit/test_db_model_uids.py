@@ -17,8 +17,12 @@ from __future__ import absolute_import
 import json
 import hashlib
 from collections import OrderedDict
+import sys
 
-import unittest2
+# TODO: Move keywords directly to hashlib.md5 call as part of dropping py3.8.
+hashlib_kwargs = {} if sys.version_info[0:2] < (3, 9) else {"usedforsecurity": False}
+
+import unittest
 
 from st2common.models.db.pack import PackDB
 from st2common.models.db.sensor import SensorTypeDB
@@ -30,72 +34,82 @@ from st2common.models.db.policy import PolicyTypeDB
 from st2common.models.db.policy import PolicyDB
 from st2common.models.db.auth import ApiKeyDB
 
-__all__ = [
-    'DBModelUIDFieldTestCase'
-]
+__all__ = ["DBModelUIDFieldTestCase"]
 
 
-class DBModelUIDFieldTestCase(unittest2.TestCase):
+class DBModelUIDFieldTestCase(unittest.TestCase):
     def test_get_uid(self):
-        pack_db = PackDB(ref='ma_pack')
-        self.assertEqual(pack_db.get_uid(), 'pack:ma_pack')
+        pack_db = PackDB(ref="ma_pack")
+        self.assertEqual(pack_db.get_uid(), "pack:ma_pack")
         self.assertTrue(pack_db.has_valid_uid())
 
-        sensor_type_db = SensorTypeDB(name='sname', pack='spack')
-        self.assertEqual(sensor_type_db.get_uid(), 'sensor_type:spack:sname')
+        sensor_type_db = SensorTypeDB(name="sname", pack="spack")
+        self.assertEqual(sensor_type_db.get_uid(), "sensor_type:spack:sname")
         self.assertTrue(sensor_type_db.has_valid_uid())
 
-        action_db = ActionDB(name='aname', pack='apack', runner_type={})
-        self.assertEqual(action_db.get_uid(), 'action:apack:aname')
+        action_db = ActionDB(name="aname", pack="apack", runner_type={})
+        self.assertEqual(action_db.get_uid(), "action:apack:aname")
         self.assertTrue(action_db.has_valid_uid())
 
-        rule_db = RuleDB(name='rname', pack='rpack')
-        self.assertEqual(rule_db.get_uid(), 'rule:rpack:rname')
+        rule_db = RuleDB(name="rname", pack="rpack")
+        self.assertEqual(rule_db.get_uid(), "rule:rpack:rname")
         self.assertTrue(rule_db.has_valid_uid())
 
-        trigger_type_db = TriggerTypeDB(name='ttname', pack='ttpack')
-        self.assertEqual(trigger_type_db.get_uid(), 'trigger_type:ttpack:ttname')
+        trigger_type_db = TriggerTypeDB(name="ttname", pack="ttpack")
+        self.assertEqual(trigger_type_db.get_uid(), "trigger_type:ttpack:ttname")
         self.assertTrue(trigger_type_db.has_valid_uid())
 
-        trigger_db = TriggerDB(name='tname', pack='tpack')
-        self.assertTrue(trigger_db.get_uid().startswith('trigger:tpack:tname:'))
+        trigger_db = TriggerDB(name="tname", pack="tpack")
+        self.assertTrue(trigger_db.get_uid().startswith("trigger:tpack:tname:"))
 
         # Verify that same set of parameters always results in the same hash
-        parameters = {'a': 1, 'b': 'unicode', 'c': [1, 2, 3], 'd': {'g': 1, 'h': 2}}
+        parameters = {"a": 1, "b": "unicode", "c": [1, 2, 3], "d": {"g": 1, "h": 2}}
         paramers_hash = json.dumps(parameters, sort_keys=True)
-        paramers_hash = hashlib.md5(paramers_hash.encode()).hexdigest()
+        paramers_hash = hashlib.md5(
+            paramers_hash.encode(), **hashlib_kwargs
+        ).hexdigest()  # nosec. remove nosec after py3.8 drop
 
-        parameters = {'a': 1, 'b': 'unicode', 'c': [1, 2, 3], 'd': {'g': 1, 'h': 2}}
-        trigger_db = TriggerDB(name='tname', pack='tpack', parameters=parameters)
-        self.assertEqual(trigger_db.get_uid(), 'trigger:tpack:tname:%s' % (paramers_hash))
+        parameters = {"a": 1, "b": "unicode", "c": [1, 2, 3], "d": {"g": 1, "h": 2}}
+        trigger_db = TriggerDB(name="tname", pack="tpack", parameters=parameters)
+        self.assertEqual(
+            trigger_db.get_uid(), "trigger:tpack:tname:%s" % (paramers_hash)
+        )
         self.assertTrue(trigger_db.has_valid_uid())
 
-        parameters = {'c': [1, 2, 3], 'b': u'unicode', 'd': {'h': 2, 'g': 1}, 'a': 1}
-        trigger_db = TriggerDB(name='tname', pack='tpack', parameters=parameters)
-        self.assertEqual(trigger_db.get_uid(), 'trigger:tpack:tname:%s' % (paramers_hash))
+        parameters = {"c": [1, 2, 3], "b": "unicode", "d": {"h": 2, "g": 1}, "a": 1}
+        trigger_db = TriggerDB(name="tname", pack="tpack", parameters=parameters)
+        self.assertEqual(
+            trigger_db.get_uid(), "trigger:tpack:tname:%s" % (paramers_hash)
+        )
         self.assertTrue(trigger_db.has_valid_uid())
 
-        parameters = {'b': u'unicode', 'c': [1, 2, 3], 'd': {'h': 2, 'g': 1}, 'a': 1}
-        trigger_db = TriggerDB(name='tname', pack='tpack', parameters=parameters)
-        self.assertEqual(trigger_db.get_uid(), 'trigger:tpack:tname:%s' % (paramers_hash))
+        parameters = {"b": "unicode", "c": [1, 2, 3], "d": {"h": 2, "g": 1}, "a": 1}
+        trigger_db = TriggerDB(name="tname", pack="tpack", parameters=parameters)
+        self.assertEqual(
+            trigger_db.get_uid(), "trigger:tpack:tname:%s" % (paramers_hash)
+        )
         self.assertTrue(trigger_db.has_valid_uid())
 
-        parameters = OrderedDict({'c': [1, 2, 3], 'b': u'unicode', 'd': {'h': 2, 'g': 1}, 'a': 1})
-        trigger_db = TriggerDB(name='tname', pack='tpack', parameters=parameters)
-        self.assertEqual(trigger_db.get_uid(), 'trigger:tpack:tname:%s' % (paramers_hash))
+        parameters = OrderedDict(
+            {"c": [1, 2, 3], "b": "unicode", "d": {"h": 2, "g": 1}, "a": 1}
+        )
+        trigger_db = TriggerDB(name="tname", pack="tpack", parameters=parameters)
+        self.assertEqual(
+            trigger_db.get_uid(), "trigger:tpack:tname:%s" % (paramers_hash)
+        )
         self.assertTrue(trigger_db.has_valid_uid())
 
-        policy_type_db = PolicyTypeDB(resource_type='action', name='concurrency')
-        self.assertEqual(policy_type_db.get_uid(), 'policy_type:action:concurrency')
+        policy_type_db = PolicyTypeDB(resource_type="action", name="concurrency")
+        self.assertEqual(policy_type_db.get_uid(), "policy_type:action:concurrency")
         self.assertTrue(policy_type_db.has_valid_uid())
 
-        policy_db = PolicyDB(pack='dummy', name='policy1')
-        self.assertEqual(policy_db.get_uid(), 'policy:dummy:policy1')
+        policy_db = PolicyDB(pack="dummy", name="policy1")
+        self.assertEqual(policy_db.get_uid(), "policy:dummy:policy1")
 
-        api_key_db = ApiKeyDB(key_hash='valid')
-        self.assertEqual(api_key_db.get_uid(), 'api_key:valid')
+        api_key_db = ApiKeyDB(key_hash="valid")
+        self.assertEqual(api_key_db.get_uid(), "api_key:valid")
         self.assertTrue(api_key_db.has_valid_uid())
 
         api_key_db = ApiKeyDB()
-        self.assertEqual(api_key_db.get_uid(), 'api_key:')
+        self.assertEqual(api_key_db.get_uid(), "api_key:")
         self.assertFalse(api_key_db.has_valid_uid())

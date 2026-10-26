@@ -14,47 +14,35 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-import unittest2
+import unittest
 
 from st2common.util.shell import quote_unix
 from st2common.util.shell import quote_windows
 from six.moves import zip
 
 
-class ShellUtilsTestCase(unittest2.TestCase):
+class ShellUtilsTestCase(unittest.TestCase):
     def test_quote_unix(self):
-        arguments = [
-            'foo',
-            'foo bar',
-            'foo1 bar1',
-            '"foo"',
-            '"foo" "bar"',
-            "'foo bar'"
-        ]
+        arguments = ["foo", "foo bar", "foo1 bar1", '"foo"', '"foo" "bar"', "'foo bar'"]
         expected_values = [
             """
             foo
             """,
-
             """
             'foo bar'
             """,
-
             """
             'foo1 bar1'
             """,
-
             """
             '"foo"'
             """,
-
             """
             '"foo" "bar"'
             """,
-
             """
             ''"'"'foo bar'"'"''
-            """
+            """,
         ]
 
         for argument, expected_value in zip(arguments, expected_values):
@@ -63,38 +51,26 @@ class ShellUtilsTestCase(unittest2.TestCase):
             self.assertEqual(actual_value, expected_value.strip())
 
     def test_quote_windows(self):
-        arguments = [
-            'foo',
-            'foo bar',
-            'foo1 bar1',
-            '"foo"',
-            '"foo" "bar"',
-            "'foo bar'"
-        ]
+        arguments = ["foo", "foo bar", "foo1 bar1", '"foo"', '"foo" "bar"', "'foo bar'"]
         expected_values = [
             """
             foo
             """,
-
             """
             "foo bar"
             """,
-
             """
             "foo1 bar1"
             """,
-
             """
             \\"foo\\"
             """,
-
             """
             "\\"foo\\" \\"bar\\""
             """,
-
             """
             "'foo bar'"
-            """
+            """,
         ]
 
         for argument, expected_value in zip(arguments, expected_values):

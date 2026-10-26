@@ -22,19 +22,25 @@ from oslo_config import cfg
 
 from st2common.util import mongoescape as util_mongodb
 from st2common import log as logging
+from st2common.models.db.stormbase import EscapedDynamicField, EscapedDictField
 
-__all__ = [
-    'BaseAPI',
-    'APIUIDMixin'
-]
+__all__ = ["BaseAPI", "APIUIDMixin"]
 
 
 LOG = logging.getLogger(__name__)
 
 
+# NOTE: Update pylint_plugins/fixtures/api_models.py if this changes significantly
 @six.add_metaclass(abc.ABCMeta)
 class BaseAPI(object):
     schema = abc.abstractproperty
+    name = None
+
+    # A list of document fields on which we should not call unescape_chars. Right now we should
+    # manually list all the JSONDict field types here, but in the future we should improve the code
+    # to explicitly call unescape only on EscapedDict/DynamicField values (this requires bigger
+    # change).
+    skip_unescape_field_names = []
 
     def __init__(self, **kw):
         for key, value in kw.items():
@@ -42,13 +48,13 @@ class BaseAPI(object):
 
     def __repr__(self):
         name = type(self).__name__
-        attrs = ', '.join("'%s': %r" % item for item in six.iteritems(vars(self)))
+        attrs = ", ".join("'%s': %r" % item for item in six.iteritems(vars(self)))
         # The format here is so that eval can be applied.
         return "%s(**{%s})" % (name, attrs)
 
     def __str__(self):
         name = type(self).__name__
-        attrs = ', '.join("%s=%r" % item for item in six.iteritems(vars(self)))
+        attrs = ", ".join("%s=%r" % item for item in six.iteritems(vars(self)))
 
         return "%s[%s]" % (name, attrs)
 
@@ -65,28 +71,64 @@ class BaseAPI(object):
         """
         from st2common.util import schema as util_schema
 
-        schema = getattr(self, 'schema', {})
+        schema = getattr(self, "schema", {})
         attributes = vars(self)
 
-        cleaned = util_schema.validate(instance=attributes, schema=schema,
-                                       cls=util_schema.CustomValidator, use_default=True,
-                                       allow_default_none=True)
+        cleaned = util_schema.validate(
+            instance=attributes,
+            schema=schema,
+            cls=util_schema.CustomValidator,
+            use_default=True,
+            allow_default_none=True,
+        )
 
         # Note: We use type() instead of self.__class__ since self.__class__ confuses pylint
         return type(self)(**cleaned)
 
     @classmethod
     def _from_model(cls, model, mask_secrets=False):
+        unescape_fields = [
+            k
+            for k, v in model._fields.items()
+            if type(v) in [EscapedDynamicField, EscapedDictField]
+        ]
+        unescape_fields = set(unescape_fields) - set(cls.skip_unescape_field_names)
         doc = model.to_mongo()
 
-        if '_id' in doc:
-            doc['id'] = str(doc.pop('_id'))
+        if "_id" in doc:
+            doc["id"] = str(doc.pop("_id"))
 
-        doc = util_mongodb.unescape_chars(doc)
+        # Special case for models which utilize JSONDictField - there is no need to escape those
+        # fields since it contains a JSON string and not a dictionary which doesn't need to be
+        # mongo escaped. Skipping this step here substantially speeds things up for that field.
+        raw_values = {}
+        for field_name in cls.skip_unescape_field_names:
+            if isinstance(doc.get(field_name, None), bytes):
+                raw_values[field_name] = doc.pop(field_name)
+        for key in unescape_fields:
+            if key in doc.keys():
+                doc[key] = util_mongodb.unescape_chars(doc[key])
+        # convert raw fields and add back ; no need to unescape
+        doc = cls.convert_raw(doc, raw_values)
 
         if mask_secrets and cfg.CONF.log.mask_secrets:
             doc = model.mask_secrets(value=doc)
 
+        return doc
+
+    @classmethod
+    def convert_raw(cls, doc, raw_values):
+        """
+        override this class to
+        convert any raw byte values into dict
+        you can also use this to fix any other fields that need 'fixing'
+
+        :param doc: dict
+        :param raw_values: dict[field]:bytestring
+        """
+
+        for field_name, field_value in raw_values.items():
+            doc[field_name] = field_value
         return doc
 
     @classmethod
@@ -116,7 +158,7 @@ class BaseAPI(object):
 
 
 class APIUIDMixin(object):
-    """"
+    """ "
     Mixin class for retrieving UID for API objects.
     """
 
@@ -141,9 +183,11 @@ class APIUIDMixin(object):
 
 def cast_argument_value(value_type, value):
     if value_type == bool:
+
         def cast_func(value):
             value = str(value)
-            return value.lower() in ['1', 'true']
+            return value.lower() in ["1", "true"]
+
     else:
         cast_func = value_type
 

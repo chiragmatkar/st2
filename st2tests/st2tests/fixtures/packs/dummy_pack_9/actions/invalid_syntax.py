@@ -14,8 +14,8 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-from invalid import Invalid   # noqa
+from invalid import Invalid  # noqa # pants: no-infer-dep
 
 
-class Foo():
+class Foo:
     pass

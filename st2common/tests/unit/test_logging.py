@@ -14,32 +14,36 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-import unittest2
+import unittest
 
 from st2common.logging.misc import get_logger_name_for_module
 from st2reactor.cmd import sensormanager
 from python_runner import python_runner
 from st2common import runners
 
-__all__ = [
-    'LoggingMiscUtilsTestCase'
-]
+__all__ = ["LoggingMiscUtilsTestCase"]
 
 
-class LoggingMiscUtilsTestCase(unittest2.TestCase):
+class LoggingMiscUtilsTestCase(unittest.TestCase):
     def test_get_logger_name_for_module(self):
         logger_name = get_logger_name_for_module(sensormanager)
-        self.assertEqual(logger_name, 'st2reactor.cmd.sensormanager')
+        self.assertEqual(logger_name, "st2reactor.cmd.sensormanager")
 
         logger_name = get_logger_name_for_module(python_runner)
-        result = logger_name.endswith('contrib.runners.python_runner.python_runner.python_runner')
+        result = logger_name.endswith(
+            "contrib.runners.python_runner.python_runner.python_runner"
+        )
         self.assertTrue(result)
 
-        logger_name = get_logger_name_for_module(python_runner, exclude_module_name=True)
-        self.assertTrue(logger_name.endswith('contrib.runners.python_runner.python_runner'))
+        logger_name = get_logger_name_for_module(
+            python_runner, exclude_module_name=True
+        )
+        self.assertTrue(
+            logger_name.endswith("contrib.runners.python_runner.python_runner")
+        )
 
         logger_name = get_logger_name_for_module(runners)
-        self.assertEqual(logger_name, 'st2common.runners.__init__')
+        self.assertEqual(logger_name, "st2common.runners.__init__")
 
         logger_name = get_logger_name_for_module(runners, exclude_module_name=True)
-        self.assertEqual(logger_name, 'st2common.runners')
+        self.assertEqual(logger_name, "st2common.runners")

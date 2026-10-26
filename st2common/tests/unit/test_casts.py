@@ -16,26 +16,26 @@
 from __future__ import absolute_import
 import json
 
-import unittest2
+import unittest
 
 from st2common.util.casts import get_cast
 
 
-class CastsTestCase(unittest2.TestCase):
+class CastsTestCase(unittest.TestCase):
     def test_cast_string(self):
-        cast_func = get_cast('string')
+        cast_func = get_cast("string")
 
-        value = 'test1'
+        value = "test1"
         result = cast_func(value)
-        self.assertEqual(result, 'test1')
+        self.assertEqual(result, "test1")
 
-        value = u'test2'
+        value = "test2"
         result = cast_func(value)
-        self.assertEqual(result, u'test2')
+        self.assertEqual(result, "test2")
 
-        value = ''
+        value = ""
         result = cast_func(value)
-        self.assertEqual(result, '')
+        self.assertEqual(result, "")
 
         # None should be preserved
         value = None
@@ -45,10 +45,10 @@ class CastsTestCase(unittest2.TestCase):
         # Non string or non, should throw a friendly exception
         value = []
         expected_msg = r'Value "\[\]" must either be a string or None. Got "list"'
-        self.assertRaisesRegexp(ValueError, expected_msg, cast_func, value)
+        self.assertRaisesRegex(ValueError, expected_msg, cast_func, value)
 
     def test_cast_array(self):
-        cast_func = get_cast('array')
+        cast_func = get_cast("array")
 
         # Python literal
         value = str([1, 2, 3])

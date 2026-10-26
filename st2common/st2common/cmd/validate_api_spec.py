@@ -22,8 +22,8 @@ in st2common/models/api/.
 from __future__ import absolute_import
 import os
 
+import prance
 from oslo_config import cfg
-from prance import ResolvingParser
 
 from st2common import config
 from st2common import log as logging
@@ -33,19 +33,28 @@ from st2common.script_setup import teardown as common_teardown
 import six
 
 
-__all__ = [
-    'main'
-]
+__all__ = ["main"]
 
 
 cfg.CONF.register_cli_opt(
-    cfg.StrOpt('spec-file', short='f', required=False,
-               default='st2common/st2common/openapi.yaml')
+    cfg.StrOpt(
+        "spec-file",
+        short="f",
+        required=False,
+        default="st2common/st2common/openapi.yaml",
+    )
+)
+
+# When disabled, only load the spec in prance to validate. Otherwise check for x-api-model as well.
+# validate-defs is disabled by default until these are resolved:
+#   https://github.com/StackStorm/st2/issues/3575
+#   https://github.com/StackStorm/st2/issues/3788
+cfg.CONF.register_cli_opt(
+    cfg.BoolOpt("validate-defs", short="-d", required=False, default=False)
 )
 
 cfg.CONF.register_cli_opt(
-    cfg.BoolOpt('generate', short='-c', required=False,
-                default=False)
+    cfg.BoolOpt("generate", short="-c", required=False, default=False)
 )
 
 LOG = logging.getLogger(__name__)
@@ -56,12 +65,12 @@ def setup():
 
 
 def _validate_definitions(spec):
-    defs = spec.get('definitions', None)
+    defs = spec.get("definitions", None)
     error = False
     verbose = cfg.CONF.verbose
 
     for (model, definition) in six.iteritems(defs):
-        api_model = definition.get('x-api-model', None)
+        api_model = definition.get("x-api-model", None)
 
         if not api_model:
             msg = (
@@ -69,7 +78,8 @@ def _validate_definitions(spec):
             )
 
             if verbose:
-                LOG.info('Supplied definition for model %s: \n\n%s.', model, definition)
+                LOG.info("Supplied definition for model %s: \n\n%s.", model, definition)
+                msg += "\n"
 
             error = True
             LOG.error(msg)
@@ -80,30 +90,36 @@ def _validate_definitions(spec):
 def validate_spec():
     spec_file = cfg.CONF.spec_file
     generate_spec = cfg.CONF.generate
+    validate_defs = cfg.CONF.validate_defs
 
     if not os.path.exists(spec_file) and not generate_spec:
-        msg = ('No spec file found in location %s. ' % spec_file +
-               'Provide a valid spec file or ' +
-               'pass --generate-api-spec to genrate a spec.')
+        msg = (
+            "No spec file found in location %s. " % spec_file
+            + "Provide a valid spec file or "
+            + "pass --generate-api-spec to genrate a spec."
+        )
         raise Exception(msg)
 
     if generate_spec:
         if not spec_file:
-            raise Exception('Supply a path to write to spec file to.')
+            raise Exception("Supply a path to write to spec file to.")
 
-        spec_string = spec_loader.generate_spec('st2common', 'openapi.yaml.j2')
+        spec_string = spec_loader.generate_spec("st2common", "openapi.yaml.j2")
 
-        with open(spec_file, 'w') as f:
+        with open(spec_file, "w") as f:
             f.write(spec_string)
             f.flush()
 
-    parser = ResolvingParser(spec_file)
+    parser = prance.ResolvingParser(spec_file)
     spec = parser.specification
+
+    if not validate_defs:
+        return True
 
     return _validate_definitions(spec)
 
 
-def teartown():
+def teardown():
     common_teardown()
 
 
@@ -111,16 +127,18 @@ def main():
     setup()
 
     try:
-        # 1. Validate there are no duplicates keys in the YAML file
-        spec_loader.load_spec('st2common', 'openapi.yaml.j2', allow_duplicate_keys=False)
+        # Validate there are no duplicates keys in the YAML file.
+        # The spec loader do not allow duplicate keys.
+        spec_loader.load_spec("st2common", "openapi.yaml.j2")
 
-        # 2. Validate schema (currently broken)
-        # validate_spec()
-        ret = 0
+        # run the schema through prance to validate openapi spec.
+        passed = validate_spec()
+
+        ret = 0 if passed else 1
     except Exception:
-        LOG.error('Failed to validate openapi.yaml file', exc_info=True)
+        LOG.error("Failed to validate openapi.yaml file", exc_info=True)
         ret = 1
     finally:
-        teartown()
+        teardown()
 
     return ret

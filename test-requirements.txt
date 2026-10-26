@@ -1,35 +1,52 @@
-# NOTE: codecov only supports coverage==4.5.2
-coverage==4.5.2
+# Important: Keep version constraints synchronised with the below repositories:
+# - https://github.com/StackStorm/st2docs
+# - https://github.com/StackStorm/orquesta
+# - https://github.com/StackStorm/st2-auth-ldap
+# - https://github.com/StackStorm/st2-rbac-backend
+# ----------------------------------------------------------------------
+coverage==7.4.4
 pep8==1.7.1
-st2flake8==0.1.0
-astroid==1.6.5
-pylint==1.9.4
+flake8==7.0.0
+st2flake8>0.1.0
+astroid==3.1.0
+pylint==3.1.1
 pylint-plugin-utils>=0.4
-bandit==1.5.1
-ipython<6.0.0
-mock==3.0.5
-nose>=1.3.7
+black==22.3.0
+pre-commit==3.5.0
+bandit==1.7.10
+isort>=4.2.5
+mock==5.2.0
 tabulate
-unittest2
-sphinx==1.7.9
+# 4.5.0 required for Jinja-3.1.3 support but >5.0 required by rstcheck and lower than 7.2 which drops py3.8 support
+sphinx>=5.0.0,<7.2.0
 sphinx-autobuild
-# nosetests enhancements
-rednose
-nose-timer==0.7.5
-# splitting tests run on a separate CI machines
-nose-parallel==0.3.1
+# pin alabaster (sphinx dependency) or pip installs one that is not compatible
+alabaster<0.7.14
 # Required by st2client tests
-pyyaml==5.1.2
+pyyaml==6.0.3
+# Constrain pygments required by editor to align with st2 core version
+pygments==2.21.0
 RandomWords
-gunicorn==19.9.0
-psutil==5.6.6
-webtest==2.0.25
-rstcheck>=3.3.1,<3.4
-tox==3.14.1
+gunicorn==25.3.0
+psutil==7.2.2
+webtest==3.0.7
+# Bump to latest to meet sphinx requirements.
+rstcheck==6.2.1
+tox==4.14.2
 pyrabbit
-# Since StackStorm v2.8.0 we now use cryptography instead of keyczar, but we still have some tests
-# which utilize keyczar and ensure new cryptography code is fully compatible with keyczar code
-# (those tests only run under Python 2.7 since keyczar doesn't support Python 3.x).
-# See https://github.com/StackStorm/st2/pull/4165
-python-keyczar
-pip-tools  # For pip-compile, to check for version conflicts
+prance==26.7.19.0
+# pip-tools provides pip-compile: to check for version conflicts
+pip-tools==7.5.3
+pytest==7.0.1
+pytest-benchmark[histogram]==3.4.1
+pytest-icdiff==0.9
+pytest-cov==3.0.0
+pytest-xdist==2.5.0
+# for Makefile-based pytest runs
+pytest-custom_exit_code
+# zstandard is used for micro benchmarks
+zstandard==0.25.0
+# ujson is used for micro benchmarks
+ujson==5.13.0
+# needed by integration tests for coordination
+redis==8.1.0

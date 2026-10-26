@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#!/usr/bin/env python
 
 # Copyright 2020 The StackStorm Authors.
 # Copyright 2019 Extreme Networks, Inc.
@@ -25,29 +25,29 @@ from st2common.runners.base_action import Action
 
 
 class DigAction(Action):
-
-    def run(self, rand, count, nameserver, hostname, queryopts):
+    def run(self, rand, count, nameserver, hostname, queryopts, querytype):
         opt_list = []
         output = []
 
-        cmd_args = ['dig']
+        cmd_args = ["dig"]
         if nameserver:
-            nameserver = '@' + nameserver
+            nameserver = "@" + nameserver
             cmd_args.append(nameserver)
 
-        if isinstance(queryopts, str) and ',' in queryopts:
-            opt_list = queryopts.split(',')
+        if isinstance(queryopts, str) and "," in queryopts:
+            opt_list = queryopts.split(",")
         else:
             opt_list.append(queryopts)
 
-        cmd_args.extend(['+' + option for option in opt_list])
+        cmd_args.extend(["+" + option for option in opt_list])
 
         cmd_args.append(hostname)
+        cmd_args.append(querytype)
 
         try:
-            raw_result = subprocess.Popen(cmd_args,
-                                          stderr=subprocess.PIPE,
-                                          stdout=subprocess.PIPE).communicate()[0]
+            raw_result = subprocess.Popen(
+                cmd_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE
+            ).communicate()[0]
 
             if sys.version_info >= (3,):
                 # This function might call getpreferred encoding unless we pass
@@ -57,16 +57,23 @@ class DigAction(Action):
             else:
                 result_list_str = str(raw_result)
 
-            result_list = list(filter(None, result_list_str.split('\n')))
+            # Better format the output when the type is TXT
+            if querytype.lower() == "txt":
+                result_list_str = result_list_str.replace('"', "")
+
+            result_list = list(filter(None, result_list_str.split("\n")))
 
         # NOTE: Python3 supports the FileNotFoundError, the errono.ENOENT is for py2 compat
         # for Python3:
         # except FileNotFoundError as e:
         except OSError as e:
             if e.errno == errno.ENOENT:
-                return False, "Can't find dig installed in the path (usually /usr/bin/dig). If " \
-                              "dig isn't installed, you can install it with 'sudo yum install " \
-                              "bind-utils' or 'sudo apt install dnsutils'"
+                return (
+                    False,
+                    "Can't find dig installed in the path (usually /usr/bin/dig). If "
+                    "dig isn't installed, you can install it with 'sudo yum install "
+                    "bind-utils' or 'sudo apt install dnsutils'",
+                )
             else:
                 raise e
 

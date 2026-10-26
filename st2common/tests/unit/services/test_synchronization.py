@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-import unittest2
+import unittest
 import uuid
 
 from oslo_config import cfg
@@ -23,7 +23,7 @@ from st2common.services import coordination
 import st2tests.config as tests_config
 
 
-class SynchronizationTest(unittest2.TestCase):
+class SynchronizationTest(unittest.TestCase):
     coordinator = None
 
     @classmethod
@@ -39,14 +39,28 @@ class SynchronizationTest(unittest2.TestCase):
         super(SynchronizationTest, cls).tearDownClass()
 
     def test_service_configured(self):
-        cfg.CONF.set_override(name='url', override='kazoo://127.0.0.1:2181', group='coordination')
+        cfg.CONF.set_override(name="url", override=None, group="coordination")
+        self.assertEqual(coordination.get_driver_name(), None)
+
+        cfg.CONF.set_override(
+            name="url", override="kazoo://127.0.0.1:2181", group="coordination"
+        )
         self.assertTrue(coordination.configured())
+        self.assertEqual(coordination.get_driver_name(), "kazoo")
 
-        cfg.CONF.set_override(name='url', override='file:///tmp', group='coordination')
+        cfg.CONF.set_override(name="url", override="file:///tmp", group="coordination")
         self.assertFalse(coordination.configured())
+        self.assertEqual(coordination.get_driver_name(), "file")
 
-        cfg.CONF.set_override(name='url', override='zake://', group='coordination')
+        cfg.CONF.set_override(name="url", override="zake://", group="coordination")
         self.assertFalse(coordination.configured())
+        self.assertEqual(coordination.get_driver_name(), "zake")
+
+        cfg.CONF.set_override(
+            name="url", override="redis://foo:bar@127.0.0.1", group="coordination"
+        )
+        self.assertTrue(coordination.configured())
+        self.assertEqual(coordination.get_driver_name(), "redis")
 
     def test_lock(self):
         name = uuid.uuid4().hex

@@ -15,7 +15,7 @@
 
 from __future__ import absolute_import
 
-import imp
+import importlib.util
 import inspect
 import json
 import os
@@ -28,29 +28,24 @@ import yaml
 from st2common.exceptions.plugins import IncompatiblePluginException
 from st2common import log as logging
 
-__all__ = [
-    'register_plugin',
-    'register_plugin_class',
-
-    'load_meta_file'
-]
+__all__ = ["register_plugin", "register_plugin_class", "load_meta_file"]
 
 
 LOG = logging.getLogger(__name__)
 
-PYTHON_EXTENSION = '.py'
-ALLOWED_EXTS = ['.json', '.yaml', '.yml']
-PARSER_FUNCS = {'.json': json.load, '.yml': yaml.safe_load, '.yaml': yaml.safe_load}
+PYTHON_EXTENSION = ".py"
+ALLOWED_EXTS = [".json", ".yaml", ".yml"]
+PARSER_FUNCS = {".json": json.load, ".yml": yaml.safe_load, ".yaml": yaml.safe_load}
 
 # Cache for dynamically loaded runner modules
 RUNNER_MODULES_CACHE = defaultdict(dict)
-QUERIER_MODULES_CACHE = {}
-CALLBACK_MODULES_CACHE = {}
 
 
 def _register_plugin_path(plugin_dir_abs_path):
     if not os.path.isdir(plugin_dir_abs_path):
-        raise Exception('Directory "%s" with plugins doesn\'t exist' % (plugin_dir_abs_path))
+        raise Exception(
+            'Directory "%s" with plugins doesn\'t exist' % (plugin_dir_abs_path)
+        )
 
     for x in sys.path:
         if plugin_dir_abs_path in (x, x + os.sep):
@@ -61,19 +56,25 @@ def _register_plugin_path(plugin_dir_abs_path):
 def _get_plugin_module(plugin_file_path):
     plugin_module = os.path.basename(plugin_file_path)
     if plugin_module.endswith(PYTHON_EXTENSION):
-        plugin_module = plugin_module[:plugin_module.rfind('.py')]
+        plugin_module = plugin_module[: plugin_module.rfind(".py")]
     else:
         plugin_module = None
     return plugin_module
 
 
 def _get_classes_in_module(module):
-    return [kls for name, kls in inspect.getmembers(module,
-            lambda member: inspect.isclass(member) and member.__module__ == module.__name__)]
+    return [
+        kls
+        for name, kls in inspect.getmembers(
+            module,
+            lambda member: inspect.isclass(member)
+            and member.__module__ == module.__name__,
+        )
+    ]
 
 
-def _get_plugin_classes(module_name):
-    return _get_classes_in_module(module_name)
+def _get_plugin_classes(module):
+    return _get_classes_in_module(module)
 
 
 def _get_plugin_methods(plugin_klass):
@@ -94,7 +95,7 @@ def _get_plugin_methods(plugin_klass):
     method_names = []
     for name, method in methods:
         method_properties = method.__dict__
-        is_abstract = method_properties.get('__isabstractmethod__', False)
+        is_abstract = method_properties.get("__isabstractmethod__", False)
 
         if is_abstract:
             continue
@@ -104,16 +105,18 @@ def _get_plugin_methods(plugin_klass):
 
 
 def _validate_methods(plugin_base_class, plugin_klass):
-    '''
+    """
     XXX: This is hacky but we'd like to validate the methods
     in plugin_impl at least has all the *abstract* methods in
     plugin_base_class.
-    '''
+    """
     expected_methods = plugin_base_class.__abstractmethods__
     plugin_methods = _get_plugin_methods(plugin_klass)
     for method in expected_methods:
         if method not in plugin_methods:
-            message = 'Class "%s" doesn\'t implement required "%s" method from the base class'
+            message = (
+                'Class "%s" doesn\'t implement required "%s" method from the base class'
+            )
             raise IncompatiblePluginException(message % (plugin_klass.__name__, method))
 
 
@@ -126,7 +129,7 @@ def register_plugin_class(base_class, file_path, class_name):
     """
     Retrieve a register plugin class from the provided file.
 
-    This method also validate that the class implements all the abstract methods
+    This method also validates that the class implements all the abstract methods
     from the base plugin class.
 
     :param base_class: Base plugin class.
@@ -145,12 +148,16 @@ def register_plugin_class(base_class, file_path, class_name):
     if module_name is None:
         return None
 
-    module = imp.load_source(module_name, file_path)
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     klass = getattr(module, class_name, None)
 
     if not klass:
-        raise Exception('Plugin file "%s" doesn\'t expose class named "%s"' %
-                        (file_path, class_name))
+        raise Exception(
+            'Plugin file "%s" doesn\'t expose class named "%s"'
+            % (file_path, class_name)
+        )
 
     _register_plugin(base_class, klass)
     return klass
@@ -165,7 +172,9 @@ def register_plugin(plugin_base_class, plugin_abs_file_path):
     if module_name is None:
         return None
 
-    module = imp.load_source(module_name, plugin_abs_file_path)
+    spec = importlib.util.spec_from_file_location(module_name, plugin_abs_file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     klasses = _get_plugin_classes(module)
 
     # Try registering classes in plugin file. Some may fail.
@@ -175,12 +184,14 @@ def register_plugin(plugin_base_class, plugin_abs_file_path):
             registered_plugins.append(klass)
         except Exception as e:
             LOG.exception(e)
-            LOG.debug('Skipping class %s as it doesn\'t match specs.', klass)
+            LOG.debug("Skipping class %s as it doesn't match specs.", klass)
             continue
 
     if len(registered_plugins) == 0:
-        raise Exception('Found no classes in plugin file "%s" matching requirements.' %
-                        (plugin_abs_file_path))
+        raise Exception(
+            'Found no classes in plugin file "%s" matching requirements.'
+            % (plugin_abs_file_path)
+        )
 
     return registered_plugins
 
@@ -191,16 +202,17 @@ def load_meta_file(file_path):
 
     file_name, file_ext = os.path.splitext(file_path)
     if file_ext not in ALLOWED_EXTS:
-        raise Exception('Unsupported meta type %s, file %s. Allowed: %s' %
-                        (file_ext, file_path, ALLOWED_EXTS))
+        raise Exception(
+            "Unsupported meta type %s, file %s. Allowed: %s"
+            % (file_ext, file_path, ALLOWED_EXTS)
+        )
 
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         return PARSER_FUNCS[file_ext](f)
 
 
 def get_available_plugins(namespace):
-    """Return names of the available / installed plugins for a given namespace.
-    """
+    """Return names of the available / installed plugins for a given namespace."""
     from stevedore.extension import ExtensionManager
 
     manager = ExtensionManager(namespace=namespace, invoke_on_load=False)
@@ -208,9 +220,10 @@ def get_available_plugins(namespace):
 
 
 def get_plugin_instance(namespace, name, invoke_on_load=True):
-    """Return class instance for the provided plugin name and namespace.
-    """
+    """Return class instance for the provided plugin name and namespace."""
     from stevedore.driver import DriverManager
 
-    manager = DriverManager(namespace=namespace, name=name, invoke_on_load=invoke_on_load)
+    manager = DriverManager(
+        namespace=namespace, name=name, invoke_on_load=invoke_on_load
+    )
     return manager.driver

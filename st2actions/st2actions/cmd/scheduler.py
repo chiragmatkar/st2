@@ -17,6 +17,7 @@
 from __future__ import absolute_import
 
 from st2common.util.monkey_patch import monkey_patch
+
 monkey_patch()
 
 import os
@@ -27,12 +28,13 @@ from st2actions.scheduler import config
 from st2common import log as logging
 from st2common.service_setup import teardown as common_teardown
 from st2common.service_setup import setup as common_setup
+from st2common.service_setup import deregister_service
+from st2common.util import concurrency
 
-__all__ = [
-    'main'
-]
+__all__ = ["main"]
 
 LOG = logging.getLogger(__name__)
+SCHEDULER = "scheduler"
 
 
 def _setup_sigterm_handler():
@@ -46,23 +48,27 @@ def _setup_sigterm_handler():
 
 
 def _setup():
-    capabilities = {
-        'name': 'scheduler',
-        'type': 'passive'
-    }
-    common_setup(service='scheduler', config=config, setup_db=True, register_mq_exchanges=True,
-                 register_signal_handlers=True, service_registry=True, capabilities=capabilities)
+    capabilities = {"name": "scheduler", "type": "passive"}
+    common_setup(
+        service=SCHEDULER,
+        config=config,
+        setup_db=True,
+        register_mq_exchanges=True,
+        register_signal_handlers=True,
+        service_registry=True,
+        capabilities=capabilities,
+    )
 
     _setup_sigterm_handler()
 
 
 def _run_scheduler():
-    LOG.info('(PID=%s) Scheduler started.', os.getpid())
+    LOG.info("(PID=%s) Scheduler started.", os.getpid())
 
-    # Lazy load these so that decorator metrics are in place
+    # Lazy load these so that decorator metrics are in place.
     from st2actions.scheduler import (
         handler as scheduler_handler,
-        entrypoint as scheduler_entrypoint
+        entrypoint as scheduler_entrypoint,
     )
 
     handler = scheduler_handler.get_handler()
@@ -73,45 +79,94 @@ def _run_scheduler():
     try:
         handler._cleanup_policy_delayed()
     except Exception:
-        LOG.exception('(PID=%s) Scheduler unable to perform migration cleanup.', os.getpid())
+        LOG.exception(
+            "(PID=%s) Scheduler unable to perform migration cleanup.", os.getpid()
+        )
 
     # TODO: Remove this try block for _fix_missing_action_execution_id in v3.2.
     # This is a temporary fix to auto-populate action_execution_id.
     try:
         handler._fix_missing_action_execution_id()
     except Exception:
-        LOG.exception('(PID=%s) Scheduler unable to populate action_execution_id.', os.getpid())
+        LOG.exception(
+            "(PID=%s) Scheduler unable to populate action_execution_id.", os.getpid()
+        )
+
+    # Bootstrap missing scheduling queue entries for requested LiveActions.
+    # This handles recovery from RabbitMQ failures where messages were never consumed.
+    handler._bootstrap_missing_scheduling_queue_items()
 
     try:
         handler.start()
         entrypoint.start()
 
-        # Wait on handler first since entrypoint is more durable.
-        handler.wait() or entrypoint.wait()
+        # Wait on both handler and entrypoint. If either fails, we want to shut down gracefully.
+        # Poll the threads to detect when any of them fails
+        threads_to_monitor = [
+            (handler._main_thread, "handler_main"),
+            (handler._cleanup_thread, "handler_cleanup"),
+            (entrypoint._consumer_thread, "entrypoint_consumer"),
+        ]
+
+        try:
+            # Poll threads in a loop - check if any has died/failed
+            while True:
+                dead_threads = [
+                    (thread, name) for thread, name in threads_to_monitor if thread.dead
+                ]
+
+                if dead_threads:
+                    # If any dead thread raised an exception, propagate it. We must
+                    # check *all* dead threads (not just the first one observed) because
+                    # a failing sibling thread can trigger a linked shutdown that causes
+                    # other threads to exit cleanly in the same scheduling tick. Returning
+                    # success based on the first-seen clean exit would swallow the real
+                    # failure.
+                    for thread, name in dead_threads:
+                        try:
+                            concurrency.wait(thread)  # Raises if the thread raised.
+                        except Exception as e:
+                            LOG.error("Thread %s failed: %s", name, e)
+                            # Re-raise to let outer exception handler deal with shutdown
+                            raise
+
+                    # No exceptions - all dead threads exited cleanly (shouldn't
+                    # happen in normal operation).
+                    for _, name in dead_threads:
+                        LOG.info("Thread %s completed", name)
+                    return 0
+
+                # Sleep briefly to avoid tight loop and allow other greenlets to run
+                concurrency.sleep(0.1)
+        except Exception as e:
+            # If we caught an exception, it's already been logged and components shut down
+            # Re-raise it so tests and monitoring can detect the failure
+            raise e
     except (KeyboardInterrupt, SystemExit):
-        LOG.info('(PID=%s) Scheduler stopped.', os.getpid())
+        LOG.info("(PID=%s) Scheduler stopped.", os.getpid())
 
         errors = False
 
         try:
+            deregister_service(service=SCHEDULER)
             handler.shutdown()
             entrypoint.shutdown()
         except:
-            LOG.exception('Unable to shutdown scheduler.')
+            LOG.debug("Unable to shutdown scheduler.", exc_info=True)
             errors = True
 
         if errors:
             return 1
     except:
-        LOG.exception('(PID=%s) Scheduler unexpectedly stopped.', os.getpid())
+        LOG.exception("(PID=%s) Scheduler unexpectedly stopped.", os.getpid())
 
         try:
             handler.shutdown()
             entrypoint.shutdown()
         except:
-            pass
+            LOG.exception("Unable to shutdown scheduler.")
 
-        return 1
+        raise
 
     return 0
 
@@ -127,7 +182,7 @@ def main():
     except SystemExit as exit_code:
         sys.exit(exit_code)
     except:
-        LOG.exception('(PID=%s) Scheduler quit due to exception.', os.getpid())
+        LOG.exception("(PID=%s) Scheduler quit due to exception.", os.getpid())
         return 1
     finally:
         _teardown()

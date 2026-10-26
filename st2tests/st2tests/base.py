@@ -16,9 +16,12 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
+from unittest.result import TestResult
+
 # NOTE: We need to perform monkeypatch before importing ssl module otherwise tests will fail.
 # See https://github.com/StackStorm/st2/pull/4834 for details
 from st2common.util.monkey_patch import monkey_patch
+
 monkey_patch()
 
 try:
@@ -33,12 +36,12 @@ import shutil
 import logging
 
 import six
-import eventlet
 import psutil
+from st2common.util import concurrency
 import mock
 from oslo_config import cfg
-from unittest2 import TestCase
-import unittest2
+from unittest import TestCase
+import unittest
 
 from orquesta import conducting
 from orquesta import events
@@ -50,6 +53,7 @@ from orquesta import statuses as wf_statuses
 # parse_args when BaseDbTestCase runs class setup. If that is removed, unit tests
 # will failed due to conflict with duplicate DB keys.
 import st2tests.config as tests_config
+
 tests_config.parse_args()
 
 from st2common.util.api import get_full_public_api_url
@@ -95,26 +99,23 @@ from st2tests.action_aliases import BaseActionAliasTestCase
 
 
 __all__ = [
-    'EventletTestCase',
-    'DbTestCase',
-    'DbModelTestCase',
-    'CleanDbTestCase',
-    'CleanFilesTestCase',
-    'IntegrationTestCase',
-    'RunnerTestCase',
-    'ExecutionDbTestCase',
-    'WorkflowTestCase',
-
+    "EventletTestCase",
+    "DbTestCase",
+    "DbModelTestCase",
+    "CleanDbTestCase",
+    "CleanFilesTestCase",
+    "IntegrationTestCase",
+    "RunnerTestCase",
+    "ExecutionDbTestCase",
+    "WorkflowTestCase",
     # Pack test classes
-    'BaseSensorTestCase',
-    'BaseActionTestCase',
-    'BaseActionAliasTestCase',
-
-    'get_fixtures_path',
-    'get_resources_path',
-
-    'blocking_eventlet_spawn',
-    'make_mock_stream_readline'
+    "BaseSensorTestCase",
+    "BaseActionTestCase",
+    "BaseActionAliasTestCase",
+    "get_fixtures_path",
+    "get_resources_path",
+    "blocking_eventlet_spawn",
+    "make_mock_stream_readline",
 ]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -135,10 +136,10 @@ ALL_MODELS.extend(policy_model.MODELS)
 ALL_MODELS.extend(rule_enforcement_model.MODELS)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TESTS_CONFIG_PATH = os.path.join(BASE_DIR, '../conf/st2.conf')
+TESTS_CONFIG_PATH = os.path.join(BASE_DIR, "../conf/st2.conf")
 
 
-class RunnerTestCase(unittest2.TestCase):
+class RunnerTestCase(unittest.TestCase):
     meta_loader = MetaLoader()
 
     def assertCommonSt2EnvVarsAvailableInEnv(self, env):
@@ -148,17 +149,15 @@ class RunnerTestCase(unittest2.TestCase):
         """
         for var_name in COMMON_ACTION_ENV_VARIABLES:
             self.assertIn(var_name, env)
-        self.assertEqual(env['ST2_ACTION_API_URL'], get_full_public_api_url())
+        self.assertEqual(env["ST2_ACTION_API_URL"], get_full_public_api_url())
         self.assertIsNotNone(env[AUTH_TOKEN_ENV_VARIABLE_NAME])
 
     def loader(self, path):
-        """ Load the runner config
-        """
+        """Load the runner config"""
         return self.meta_loader.load(path)
 
 
 class BaseTestCase(TestCase):
-
     @classmethod
     def _register_packs(self):
         """
@@ -173,35 +172,31 @@ class BaseTestCase(TestCase):
         """
         Register all the packs inside the fixtures directory.
         """
-        registrar = ConfigsRegistrar(use_pack_cache=False, validate_configs=validate_configs)
+        registrar = ConfigsRegistrar(
+            use_pack_cache=False, validate_configs=validate_configs
+        )
         registrar.register_from_packs(base_dirs=get_packs_base_paths())
 
 
-class EventletTestCase(TestCase):
+class GreenThreadTestCase(TestCase):
     """
-    Base test class which performs eventlet monkey patching before the tests run
-    and un-patching after the tests have finished running.
+    Base test class which performs eventlet/gevent monkey patching before the tests run.
     """
 
     @classmethod
     def setUpClass(cls):
-        eventlet.monkey_patch(
-            os=True,
-            select=True,
-            socket=True,
-            thread=False if '--use-debugger' in sys.argv else True,
-            time=True
-        )
+        monkey_patch()
 
     @classmethod
     def tearDownClass(cls):
-        eventlet.monkey_patch(
-            os=False,
-            select=False,
-            socket=False,
-            thread=False,
-            time=False
-        )
+        # NOTE: Intentionally does not call super().tearDownClass() - subclasses that mix this
+        # in with a DB test case (e.g. ExecutionDbTestCase) rely on this stopping the MRO chain
+        # here rather than triggering that base class' DB teardown.
+        pass
+
+
+class EventletTestCase(GreenThreadTestCase):
+    """Deprecated alias for GreenThreadTestCase, kept for external callers."""
 
 
 class BaseDbTestCase(BaseTestCase):
@@ -222,17 +217,29 @@ class BaseDbTestCase(BaseTestCase):
         tests_config.parse_args()
 
         if cls.DISPLAY_LOG_MESSAGES:
-            config_path = os.path.join(BASE_DIR, '../conf/logging.conf')
-            logging.config.fileConfig(config_path,
-                                      disable_existing_loggers=False)
+            config_path = os.path.join(BASE_DIR, "../conf/logging.conf")
+            logging.config.fileConfig(config_path, disable_existing_loggers=False)
 
     @classmethod
     def _establish_connection_and_re_create_db(cls):
-        username = cfg.CONF.database.username if hasattr(cfg.CONF.database, 'username') else None
-        password = cfg.CONF.database.password if hasattr(cfg.CONF.database, 'password') else None
+        username = (
+            cfg.CONF.database.username
+            if hasattr(cfg.CONF.database, "username")
+            else None
+        )
+        password = (
+            cfg.CONF.database.password
+            if hasattr(cfg.CONF.database, "password")
+            else None
+        )
         cls.db_connection = db_setup(
-            cfg.CONF.database.db_name, cfg.CONF.database.host, cfg.CONF.database.port,
-            username=username, password=password, ensure_indexes=False)
+            cfg.CONF.database.db_name,
+            cfg.CONF.database.host,
+            cfg.CONF.database.port,
+            username=username,
+            password=password,
+            ensure_indexes=False,
+        )
 
         cls._drop_collections()
         cls.db_connection.drop_database(cfg.CONF.database.db_name)
@@ -242,12 +249,17 @@ class BaseDbTestCase(BaseTestCase):
         # NOTE: This is only needed in distributed scenarios (production deployments) where
         # multiple services can start up at the same time and race conditions are possible.
         if cls.ensure_indexes:
-            if len(cls.ensure_indexes_models) == 0 or len(cls.ensure_indexes_models) > 1:
-                msg = ('Ensuring indexes for all the models, this could significantly slow down '
-                       'the tests')
-                print('#' * len(msg), file=sys.stderr)
+            if (
+                len(cls.ensure_indexes_models) == 0
+                or len(cls.ensure_indexes_models) > 1
+            ):
+                msg = (
+                    "Ensuring indexes for all the models, this could significantly slow down "
+                    "the tests"
+                )
+                print("#" * len(msg), file=sys.stderr)
                 print(msg, file=sys.stderr)
-                print('#' * len(msg), file=sys.stderr)
+                print("#" * len(msg), file=sys.stderr)
 
             db_ensure_indexes(cls.ensure_indexes_models)
 
@@ -304,7 +316,16 @@ class DbTestCase(BaseDbTestCase):
     def tearDownClass(cls):
         drop_db = True
 
-        if cls.current_result.errors or cls.current_result.failures:
+        # TODO: pytst does not make results available to fixtures by default.
+        #       we might be able to add a hook+class fixture to help with this, but
+        #       that adds quite a bit of complexity. For now, pytest will always drop the db.
+        #       https://docs.pytest.org/en/stable/example/simple.html#making-test-result-information-available-in-fixtures
+        #       When someone does decide to tackle this, we will probably need to rename the db
+        #       for later inspection so subsequent tests still have a clean starting point as
+        #       pytest will not necessarily stop on failure like nosetest did.
+        if cls.current_result and (
+            cls.current_result.errors or cls.current_result.failures
+        ):
             # Don't drop DB on test failure
             drop_db = False
 
@@ -313,28 +334,31 @@ class DbTestCase(BaseDbTestCase):
 
     def run(self, result=None):
         # Remember result for use in tearDown and tearDownClass
-        self.current_result = result
-        self.__class__.current_result = result
+        # pytest sets result to _pytest.unittest.TestCaseFunction
+        # which does not have attributes: errors, failures
+        if isinstance(result, TestResult):
+            self.current_result = result
+            self.__class__.current_result = result
         super(DbTestCase, self).run(result=result)
 
 
 class ExecutionDbTestCase(DbTestCase):
-    """"
+    """ "
     Base test class for tests which test various execution related code paths.
 
     This class offers some utility methods for waiting on execution status, etc.
     """
 
     ensure_indexes = True
-    ensure_indexes_models = [
-        ActionExecutionSchedulingQueueItemDB
-    ]
+    ensure_indexes_models = [ActionExecutionSchedulingQueueItemDB]
 
-    def _wait_on_status(self, liveaction_db, status, retries=300, delay=0.1, raise_exc=True):
-        assert isinstance(status, six.string_types), '%s is not of text type' % (status)
+    def _wait_on_status(
+        self, liveaction_db, status, retries=300, delay=0.1, raise_exc=True
+    ):
+        assert isinstance(status, six.string_types), "%s is not of text type" % (status)
 
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             liveaction_db = LiveAction.get_by_id(str(liveaction_db.id))
             if liveaction_db.status == status:
                 break
@@ -344,11 +368,15 @@ class ExecutionDbTestCase(DbTestCase):
 
         return liveaction_db
 
-    def _wait_on_statuses(self, liveaction_db, statuses, retries=300, delay=0.1, raise_exc=True):
-        assert isinstance(statuses, (list, tuple)), '%s is not of list type' % (statuses)
+    def _wait_on_statuses(
+        self, liveaction_db, statuses, retries=300, delay=0.1, raise_exc=True
+    ):
+        assert isinstance(statuses, (list, tuple)), "%s is not of list type" % (
+            statuses
+        )
 
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             liveaction_db = LiveAction.get_by_id(str(liveaction_db.id))
             if liveaction_db.status in statuses:
                 break
@@ -358,9 +386,11 @@ class ExecutionDbTestCase(DbTestCase):
 
         return liveaction_db
 
-    def _wait_on_ac_ex_status(self, execution_db, status, retries=300, delay=0.1, raise_exc=True):
+    def _wait_on_ac_ex_status(
+        self, execution_db, status, retries=300, delay=0.1, raise_exc=True
+    ):
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             execution_db = ex_db_access.ActionExecution.get_by_id(str(execution_db.id))
             if execution_db.status == status:
                 break
@@ -370,9 +400,11 @@ class ExecutionDbTestCase(DbTestCase):
 
         return execution_db
 
-    def _wait_on_call_count(self, mocked, expected_count, retries=100, delay=0.1, raise_exc=True):
+    def _wait_on_call_count(
+        self, mocked, expected_count, retries=100, delay=0.1, raise_exc=True
+    ):
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             if mocked.call_count == expected_count:
                 break
 
@@ -395,12 +427,14 @@ class DbModelTestCase(DbTestCase):
 
     def _assert_fields_equal(self, a, b, exclude=None):
         exclude = exclude or []
-        fields = {k: v for k, v in six.iteritems(self.db_type._fields) if k not in exclude}
+        fields = {
+            k: v for k, v in six.iteritems(self.db_type._fields) if k not in exclude
+        }
 
         assert_funcs = {
-            'mongoengine.fields.DictField': self.assertDictEqual,
-            'mongoengine.fields.ListField': self.assertListEqual,
-            'mongoengine.fields.SortedListField': self.assertListEqual
+            "mongoengine.fields.DictField": self.assertDictEqual,
+            "mongoengine.fields.ListField": self.assertListEqual,
+            "mongoengine.fields.SortedListField": self.assertListEqual,
         }
 
         for k, v in six.iteritems(fields):
@@ -410,10 +444,7 @@ class DbModelTestCase(DbTestCase):
     def _assert_values_equal(self, a, values=None):
         values = values or {}
 
-        assert_funcs = {
-            'dict': self.assertDictEqual,
-            'list': self.assertListEqual
-        }
+        assert_funcs = {"dict": self.assertDictEqual, "list": self.assertListEqual}
 
         for k, v in six.iteritems(values):
             assert_func = assert_funcs.get(type(v).__name__, self.assertEqual)
@@ -421,7 +452,7 @@ class DbModelTestCase(DbTestCase):
 
     def _assert_crud(self, instance, defaults=None, updates=None):
         # Assert instance is not already in the database.
-        self.assertIsNone(getattr(instance, 'id', None))
+        self.assertIsNone(getattr(instance, "id", None))
 
         # Assert default values are assigned.
         self._assert_values_equal(instance, values=defaults)
@@ -429,7 +460,7 @@ class DbModelTestCase(DbTestCase):
         # Assert instance is created in the datbaase.
         saved = self.access_type.add_or_update(instance)
         self.assertIsNotNone(saved.id)
-        self._assert_fields_equal(instance, saved, exclude=['id'])
+        self._assert_fields_equal(instance, saved, exclude=["id"])
         retrieved = self.access_type.get_by_id(saved.id)
         self._assert_fields_equal(saved, retrieved)
 
@@ -443,22 +474,23 @@ class DbModelTestCase(DbTestCase):
         # Assert instance is deleted from the database.
         retrieved = self.access_type.get_by_id(instance.id)
         retrieved.delete()
-        self.assertRaises(StackStormDBObjectNotFoundError,
-                          self.access_type.get_by_id, instance.id)
+        self.assertRaises(
+            StackStormDBObjectNotFoundError, self.access_type.get_by_id, instance.id
+        )
 
     def _assert_unique_key_constraint(self, instance):
         # Assert instance is not already in the database.
-        self.assertIsNone(getattr(instance, 'id', None))
+        self.assertIsNone(getattr(instance, "id", None))
 
         # Assert instance is created in the datbaase.
         saved = self.access_type.add_or_update(instance)
         self.assertIsNotNone(saved.id)
 
         # Assert exception is thrown if try to create same instance again.
-        delattr(instance, 'id')
-        self.assertRaises(StackStormDBObjectConflictError,
-                          self.access_type.add_or_update,
-                          instance)
+        delattr(instance, "id")
+        self.assertRaises(
+            StackStormDBObjectConflictError, self.access_type.add_or_update, instance
+        )
 
 
 class CleanDbTestCase(BaseDbTestCase):
@@ -486,6 +518,7 @@ class CleanFilesTestCase(TestCase):
     """
     Base test class which deletes specified files and directories on setUp and `tearDown.
     """
+
     to_delete_files = []
     to_delete_directories = []
 
@@ -530,18 +563,33 @@ class IntegrationTestCase(TestCase):
 
     processes = {}
 
+    @classmethod
+    def setUpClass(cls):
+        # this prepares the vars for use in configuring the subprocesses via env var
+        tests_config.parse_args()
+
+    def setUp(self):
+        super(IntegrationTestCase, self).setUp()
+        self._stop_running_processes()
+
     def tearDown(self):
         super(IntegrationTestCase, self).tearDown()
+        self._stop_running_processes()
 
+    def _stop_running_processes(self):
         # Make sure we kill all the processes on teardown so they don't linger around if an
         # exception was thrown.
-        for pid, process in self.processes.items():
+        pids = list(self.processes.keys())
+        for pid in pids:
+            process = self.processes[pid]
 
             try:
                 process.kill()
             except OSError:
                 # Process already exited or similar
                 pass
+
+            del self.processes[pid]
 
             if self.print_stdout_stderr_on_teardown:
                 try:
@@ -554,9 +602,10 @@ class IntegrationTestCase(TestCase):
                 except:
                     stderr = None
 
+                print("Stopping process with pid %s" % (process.pid))
                 print('Process "%s"' % (process.pid))
-                print('Stdout: %s' % (stdout))
-                print('Stderr: %s' % (stderr))
+                print("Stdout: %s" % (stdout))
+                print("Stderr: %s" % (stderr))
 
     def add_process(self, process):
         """
@@ -578,7 +627,7 @@ class IntegrationTestCase(TestCase):
         has succesfuly started and is running.
         """
         if not process:
-            raise ValueError('process is None')
+            raise ValueError("process is None")
 
         return_code = process.poll()
 
@@ -586,24 +635,27 @@ class IntegrationTestCase(TestCase):
             if process.stdout:
                 stdout = process.stdout.read()
             else:
-                stdout = ''
+                stdout = ""
 
             if process.stderr:
                 stderr = process.stderr.read()
             else:
-                stderr = ''
+                stderr = ""
 
-            msg = ('Process exited with code=%s.\nStdout:\n%s\n\nStderr:\n%s' %
-                   (return_code, stdout, stderr))
+            msg = "Process exited with code=%s.\nStdout:\n%s\n\nStderr:\n%s" % (
+                return_code,
+                stdout,
+                stderr,
+            )
             self.fail(msg)
 
     def assertProcessExited(self, proc):
         try:
             status = proc.status()
         except psutil.NoSuchProcess:
-            status = 'exited'
+            status = "exited"
 
-        if status not in ['exited', 'zombie']:
+        if status not in ["exited", "zombie"]:
             self.fail('Process with pid "%s" is still running' % (proc.pid))
 
 
@@ -613,49 +665,49 @@ class WorkflowTestCase(ExecutionDbTestCase):
     """
 
     def get_wf_fixture_meta_data(self, fixture_pack_path, wf_meta_file_name):
-        wf_meta_file_path = fixture_pack_path + '/actions/' + wf_meta_file_name
+        wf_meta_file_path = fixture_pack_path + "/actions/" + wf_meta_file_name
         wf_meta_content = loader.load_meta_file(wf_meta_file_path)
-        wf_name = wf_meta_content['pack'] + '.' + wf_meta_content['name']
+        wf_name = wf_meta_content["pack"] + "." + wf_meta_content["name"]
 
         return {
-            'file_name': wf_meta_file_name,
-            'file_path': wf_meta_file_path,
-            'content': wf_meta_content,
-            'name': wf_name
+            "file_name": wf_meta_file_name,
+            "file_path": wf_meta_file_path,
+            "content": wf_meta_content,
+            "name": wf_name,
         }
 
     def get_wf_def(self, test_pack_path, wf_meta):
-        rel_wf_def_path = wf_meta['content']['entry_point']
-        abs_wf_def_path = os.path.join(test_pack_path, 'actions', rel_wf_def_path)
+        rel_wf_def_path = wf_meta["content"]["entry_point"]
+        abs_wf_def_path = os.path.join(test_pack_path, "actions", rel_wf_def_path)
 
-        with open(abs_wf_def_path, 'r') as def_file:
+        with open(abs_wf_def_path, "r") as def_file:
             return def_file.read()
 
     def mock_st2_context(self, ac_ex_db, context=None):
         st2_ctx = {
-            'st2': {
-                'api_url': api_util.get_full_public_api_url(),
-                'action_execution_id': str(ac_ex_db.id),
-                'user': 'stanley',
-                'action': ac_ex_db.action['ref'],
-                'runner': ac_ex_db.runner['name']
+            "st2": {
+                "api_url": api_util.get_full_public_api_url(),
+                "action_execution_id": str(ac_ex_db.id),
+                "user": "stanley",
+                "action": ac_ex_db.action["ref"],
+                "runner": ac_ex_db.runner["name"],
             }
         }
 
         if context:
-            st2_ctx['parent'] = context
+            st2_ctx["parent"] = context
 
         return st2_ctx
 
     def prep_wf_ex(self, wf_ex_db):
         data = {
-            'spec': wf_ex_db.spec,
-            'graph': wf_ex_db.graph,
-            'input': wf_ex_db.input,
-            'context': wf_ex_db.context,
-            'state': wf_ex_db.state,
-            'output': wf_ex_db.output,
-            'errors': wf_ex_db.errors
+            "spec": wf_ex_db.spec,
+            "graph": wf_ex_db.graph,
+            "input": wf_ex_db.input,
+            "context": wf_ex_db.context,
+            "state": wf_ex_db.state,
+            "output": wf_ex_db.output,
+            "errors": wf_ex_db.errors,
         }
 
         conductor = conducting.WorkflowConductor.deserialize(data)
@@ -663,7 +715,7 @@ class WorkflowTestCase(ExecutionDbTestCase):
 
         for task in conductor.get_next_tasks():
             ac_ex_event = events.ActionExecutionEvent(wf_statuses.RUNNING)
-            conductor.update_task_state(task['id'], task['route'], ac_ex_event)
+            conductor.update_task_state(task["id"], task["route"], ac_ex_event)
 
         wf_ex_db.status = conductor.get_workflow_status()
         wf_ex_db.state = conductor.workflow_state.serialize()
@@ -672,7 +724,9 @@ class WorkflowTestCase(ExecutionDbTestCase):
         return wf_ex_db
 
     def get_task_ex(self, task_id, route):
-        task_ex_dbs = wf_db_access.TaskExecution.query(task_id=task_id, task_route=route)
+        task_ex_dbs = wf_db_access.TaskExecution.query(
+            task_id=task_id, task_route=route
+        )
         self.assertGreater(len(task_ex_dbs), 0)
         return task_ex_dbs[0]
 
@@ -686,21 +740,29 @@ class WorkflowTestCase(ExecutionDbTestCase):
         self.assertEqual(len(ac_ex_dbs), 1)
         return ac_ex_dbs[0]
 
-    def run_workflow_step(self, wf_ex_db, task_id, route, ctx=None,
-                          expected_ac_ex_db_status=ac_const.LIVEACTION_STATUS_SUCCEEDED,
-                          expected_tk_ex_db_status=wf_statuses.SUCCEEDED):
-        spec_module = specs_loader.get_spec_module(wf_ex_db.spec['catalog'])
+    def run_workflow_step(
+        self,
+        wf_ex_db,
+        task_id,
+        route,
+        ctx=None,
+        expected_ac_ex_db_status=ac_const.LIVEACTION_STATUS_SUCCEEDED,
+        expected_tk_ex_db_status=wf_statuses.SUCCEEDED,
+    ):
+        spec_module = specs_loader.get_spec_module(wf_ex_db.spec["catalog"])
         wf_spec = spec_module.WorkflowSpec.deserialize(wf_ex_db.spec)
-        st2_ctx = {'execution_id': wf_ex_db.action_execution}
+        st2_ctx = {"execution_id": wf_ex_db.action_execution}
         task_spec = wf_spec.tasks.get_task(task_id)
-        task_actions = [{'action': task_spec.action, 'input': getattr(task_spec, 'input', {})}]
+        task_actions = [
+            {"action": task_spec.action, "input": getattr(task_spec, "input", {})}
+        ]
 
         task_req = {
-            'id': task_id,
-            'route': route,
-            'spec': task_spec,
-            'ctx': ctx or {},
-            'actions': task_actions
+            "id": task_id,
+            "route": route,
+            "spec": task_spec,
+            "ctx": ctx or {},
+            "actions": task_actions,
         }
 
         task_ex_db = wf_svc.request_task_execution(wf_ex_db, st2_ctx, task_req)
@@ -712,10 +774,12 @@ class WorkflowTestCase(ExecutionDbTestCase):
         self.assertEqual(task_ex_db.status, expected_tk_ex_db_status)
 
     def sort_workflow_errors(self, errors):
-        return sorted(errors, key=lambda x: x.get('task_id', None))
+        return sorted(errors, key=lambda x: x.get("task_id", None))
 
     def assert_task_not_started(self, task_id, route):
-        task_ex_dbs = wf_db_access.TaskExecution.query(task_id=task_id, task_route=route)
+        task_ex_dbs = wf_db_access.TaskExecution.query(
+            task_id=task_id, task_route=route
+        )
         self.assertEqual(len(task_ex_dbs), 0)
 
     def assert_task_running(self, task_id, route):
@@ -734,7 +798,6 @@ class WorkflowTestCase(ExecutionDbTestCase):
 
 
 class FakeResponse(object):
-
     def __init__(self, text, status_code, reason):
         self.text = text
         self.status_code = status_code
@@ -748,16 +811,21 @@ class FakeResponse(object):
 
 
 def get_fixtures_path():
-    return os.path.join(os.path.dirname(__file__), 'fixtures')
+    return os.path.join(os.path.dirname(__file__), "fixtures")
 
 
 def get_resources_path():
-    return os.path.join(os.path.dirname(__file__), 'resources')
+    return os.path.join(os.path.dirname(__file__), "resources")
+
+
+def blocking_concurrency_spawn(func, *args, **kwargs):
+    func(*args, **kwargs)
+    return mock.Mock()
 
 
 def blocking_eventlet_spawn(func, *args, **kwargs):
-    func(*args, **kwargs)
-    return mock.Mock()
+    """Deprecated alias for blocking_concurrency_spawn(), kept for external callers."""
+    return blocking_concurrency_spawn(func, *args, **kwargs)
 
 
 # Utility function for mocking read_and_store_{stdout,stderr} functions
@@ -766,7 +834,7 @@ def make_mock_stream_readline(mock_stream, mock_data, stop_counter=1, sleep_dela
 
     def mock_stream_readline():
         if sleep_delay:
-            eventlet.sleep(sleep_delay)
+            concurrency.sleep(sleep_delay)
 
         if mock_stream.counter >= stop_counter:
             mock_stream.closed = True

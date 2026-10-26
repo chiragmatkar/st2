@@ -16,19 +16,19 @@
 # All Exchanges and Queues related to liveaction.
 
 from __future__ import absolute_import
-from kombu import Exchange, Queue
+
 from st2common.transport import publishers
+from st2common.transport.kombu import Exchange, Queue
 
 __all__ = [
-    'ActionExecutionPublisher',
-    'ActionExecutionOutputPublisher',
-
-    'get_queue',
-    'get_output_queue'
+    "ActionExecutionPublisher",
+    "ActionExecutionOutputPublisher",
+    "get_queue",
+    "get_output_queue",
 ]
 
-EXECUTION_XCHG = Exchange('st2.execution', type='topic')
-EXECUTION_OUTPUT_XCHG = Exchange('st2.execution.output', type='topic')
+EXECUTION_XCHG = Exchange("st2.execution", type="topic")
+EXECUTION_OUTPUT_XCHG = Exchange("st2.execution.output", type="topic")
 
 
 class ActionExecutionPublisher(publishers.CUDPublisher):
@@ -38,14 +38,26 @@ class ActionExecutionPublisher(publishers.CUDPublisher):
 
 class ActionExecutionOutputPublisher(publishers.CUDPublisher):
     def __init__(self):
-        super(ActionExecutionOutputPublisher, self).__init__(exchange=EXECUTION_OUTPUT_XCHG)
+        super(ActionExecutionOutputPublisher, self).__init__(
+            exchange=EXECUTION_OUTPUT_XCHG
+        )
 
 
 def get_queue(name=None, routing_key=None, exclusive=False, auto_delete=False):
-    return Queue(name, EXECUTION_XCHG, routing_key=routing_key, exclusive=exclusive,
-                 auto_delete=auto_delete)
+    return Queue(
+        name,
+        EXECUTION_XCHG,
+        routing_key=routing_key,
+        exclusive=exclusive,
+        auto_delete=auto_delete,
+    )
 
 
 def get_output_queue(name=None, routing_key=None, exclusive=False, auto_delete=False):
-    return Queue(name, EXECUTION_OUTPUT_XCHG, routing_key=routing_key, exclusive=exclusive,
-                 auto_delete=auto_delete)
+    return Queue(
+        name,
+        EXECUTION_OUTPUT_XCHG,
+        routing_key=routing_key,
+        exclusive=exclusive,
+        auto_delete=auto_delete,
+    )

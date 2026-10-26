@@ -1,1 +1,3 @@
-git+https://github.com/StackStorm/orquesta.git@v1.1.1#egg=orquesta
+orquesta@ git+https://github.com/StackStorm/orquesta.git
+setuptools
+referencing

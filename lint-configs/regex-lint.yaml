@@ -1,0 +1,36 @@
+# Note that for values that are regexes, how YAML interprets backslashes and other
+# special characters matters. For example, an unquoted string is interpreted as a raw
+# string with no escape characters (so it's particularly useful for expressing regexes).
+# Adding quotes around these may change their meaning, so don't do so without thought.
+
+required_matches: {}
+  # If we decide to enable this, remove the st2flake8
+  #python_source:
+  #  - python_header
+  #build_files:
+  #  - python_header
+
+path_patterns: []
+  #- name: python_source
+  #  pattern: (?<!__init__)\.py$
+  #- name: build_files
+  #  pattern: /BUILD$
+
+content_patterns: []
+  #- name: python_header
+  #  pattern: |+
+  #    ^(?:#\!\/usr\/bin\/env python3
+  #    )?# Copyright 20\d\d The StackStorm Authors.
+  #    (?:# Copyright 20\d\d .*
+  #    )*#
+  #    # Licensed under the Apache License, Version 2.0 (the "License");
+  #    # you may not use this file except in compliance with the License.
+  #    # You may obtain a copy of the License at
+  #    #
+  #    #     http://www.apache.org/licenses/LICENSE-2.0
+  #    #
+  #    # Unless required by applicable law or agreed to in writing, software
+  #    # distributed under the License is distributed on an "AS IS" BASIS,
+  #    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  #    # See the License for the specific language governing permissions and
+  #    # limitations under the License.

@@ -19,10 +19,12 @@ import uuid
 import mock
 
 import st2tests.config as tests_config
+
 tests_config.parse_args()
 
-from unittest2 import TestCase
+from unittest import TestCase
 from st2common.constants import action as action_constants
+from st2tests.fixtures.generic.fixture import PACK_NAME as GENERIC_PACK
 from st2tests.fixturesloader import FixturesLoader
 from noop_runner import noop_runner
 
@@ -33,16 +35,17 @@ class TestNoopRunner(TestCase):
 
     def test_noop_command_executes(self):
         models = TestNoopRunner.fixtures_loader.load_models(
-            fixtures_pack='generic', fixtures_dict={'actions': ['noop.yaml']})
+            fixtures_pack=GENERIC_PACK, fixtures_dict={"actions": ["noop.yaml"]}
+        )
 
-        action_db = models['actions']['noop.yaml']
+        action_db = models["actions"]["noop.yaml"]
         runner = TestNoopRunner._get_runner(action_db)
         status, result, _ = runner.run({})
 
         self.assertEqual(status, action_constants.LIVEACTION_STATUS_SUCCEEDED)
-        self.assertEqual(result['failed'], False)
-        self.assertEqual(result['succeeded'], True)
-        self.assertEqual(result['return_code'], 0)
+        self.assertEqual(result["failed"], False)
+        self.assertEqual(result["succeeded"], True)
+        self.assertEqual(result["return_code"], 0)
 
     @staticmethod
     def _get_runner(action_db):
@@ -55,5 +58,5 @@ class TestNoopRunner(TestCase):
         runner.callback = dict()
         runner.libs_dir_path = None
         runner.auth_token = mock.Mock()
-        runner.auth_token.token = 'mock-token'
+        runner.auth_token.token = "mock-token"
         return runner

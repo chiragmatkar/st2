@@ -25,11 +25,19 @@ from st2common.util import spec_loader
 from st2common.script_setup import setup as common_setup
 from st2common.script_setup import teardown as common_teardown
 
-__all__ = [
-    'main'
-]
+__all__ = ["main"]
 
 LOG = logging.getLogger(__name__)
+
+
+# TODO: replace makefile reference with pants equivalent
+# pants fmt st2common/st2common/openapi.yaml
+SPEC_HEADER = """\
+# NOTE: This file is auto-generated - DO NOT EDIT MANUALLY
+# Edit st2common/st2common/openapi.yaml.j2 and then run
+# make .generate-api-spec
+# to generate the final spec file
+"""
 
 
 def setup():
@@ -37,7 +45,8 @@ def setup():
 
 
 def generate_spec():
-    spec_string = spec_loader.generate_spec('st2common', 'openapi.yaml.j2')
+    spec_string = spec_loader.generate_spec("st2common", "openapi.yaml.j2")
+    print(SPEC_HEADER.rstrip())
     print(spec_string)
 
 
@@ -52,7 +61,7 @@ def main():
         generate_spec()
         ret = 0
     except Exception:
-        LOG.error('Failed to generate openapi.yaml file', exc_info=True)
+        LOG.error("Failed to generate openapi.yaml file", exc_info=True)
         ret = 1
     finally:
         teartown()

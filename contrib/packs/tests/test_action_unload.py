@@ -15,11 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
 from oslo_config import cfg
 
 from st2common.util.monkey_patch import use_select_poll_workaround
+
 use_select_poll_workaround()
 
 from st2common.content.bootstrap import register_content
@@ -35,15 +34,14 @@ from st2common.persistence.trigger import TriggerType
 
 from st2tests.base import BaseActionTestCase
 from st2tests.base import CleanDbTestCase
-from st2tests import fixturesloader
+from st2tests.fixtures.packs.dummy_pack_1.fixture import (
+    PACK_NAME as DUMMY_PACK_1,
+    PACK_PATH as PACK_PATH_1,
+)
 
 from pack_mgmt.unload import UnregisterPackAction
 
-__all__ = [
-    'UnloadActionTestCase'
-]
-
-PACK_PATH_1 = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_1')
+__all__ = ["UnloadActionTestCase"]
 
 
 class UnloadActionTestCase(BaseActionTestCase, CleanDbTestCase):
@@ -64,13 +62,15 @@ class UnloadActionTestCase(BaseActionTestCase, CleanDbTestCase):
 
         # Register the pack with all the content
         # TODO: Don't use pack cache
-        cfg.CONF.set_override(name='all', override=True, group='register')
-        cfg.CONF.set_override(name='pack', override=PACK_PATH_1, group='register')
-        cfg.CONF.set_override(name='no_fail_on_failure', override=True, group='register')
+        cfg.CONF.set_override(name="all", override=True, group="register")
+        cfg.CONF.set_override(name="pack", override=PACK_PATH_1, group="register")
+        cfg.CONF.set_override(
+            name="no_fail_on_failure", override=True, group="register"
+        )
         register_content()
 
     def test_run(self):
-        pack = 'dummy_pack_1'
+        pack = DUMMY_PACK_1
         # Verify all the resources are there
 
         pack_dbs = Pack.query(ref=pack)
@@ -85,7 +85,7 @@ class UnloadActionTestCase(BaseActionTestCase, CleanDbTestCase):
         config_dbs = Config.query(pack=pack)
 
         self.assertEqual(len(pack_dbs), 1)
-        self.assertEqual(len(action_dbs), 1)
+        self.assertEqual(len(action_dbs), 3)
         self.assertEqual(len(alias_dbs), 3)
         self.assertEqual(len(rule_dbs), 1)
         self.assertEqual(len(sensor_dbs), 3)

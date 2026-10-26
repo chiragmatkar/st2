@@ -1,11 +1,15 @@
-# Remeber to list implicit packages here, otherwise version won't be fixated!
+# Remember to list implicit packages here, otherwise version won't be fixated!
 eventlet
+gevent
 jsonschema
 kombu
 mongoengine
 pymongo
 oslo.config
 oslo.utils
+pyparsing
 pymongo
 six
 gunicorn
+# needed by kombu (dh_virtualenv on ubuntu focal is failing to put tzdata in the wheelhouse)
+backports.zoneinfo[tzdata]; python_version<"3.9"

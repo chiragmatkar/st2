@@ -16,14 +16,13 @@
 from __future__ import absolute_import
 import time
 
-import eventlet
 import six.moves.queue
+
+from st2common.util import concurrency
 
 from st2common import log as logging
 
-__all__ = [
-    'BufferedDispatcher'
-]
+__all__ = ["BufferedDispatcher"]
 
 # If the thread pool has been occupied with no empty threads for more than this number of seconds
 # a message will be logged
@@ -38,14 +37,20 @@ LOG = logging.getLogger(__name__)
 
 
 class BufferedDispatcher(object):
-
-    def __init__(self, dispatch_pool_size=50, monitor_thread_empty_q_sleep_time=5,
-                 monitor_thread_no_workers_sleep_time=1, name=None):
+    def __init__(
+        self,
+        dispatch_pool_size=50,
+        monitor_thread_empty_q_sleep_time=5,
+        monitor_thread_no_workers_sleep_time=1,
+        name=None,
+    ):
         self._pool_limit = dispatch_pool_size
-        self._dispatcher_pool = eventlet.GreenPool(dispatch_pool_size)
-        self._dispatch_monitor_thread = eventlet.greenthread.spawn(self._flush)
+        self._dispatcher_pool = concurrency.get_green_pool_class()(dispatch_pool_size)
+        self._dispatch_monitor_thread = concurrency.spawn(self._flush)
         self._monitor_thread_empty_q_sleep_time = monitor_thread_empty_q_sleep_time
-        self._monitor_thread_no_workers_sleep_time = monitor_thread_no_workers_sleep_time
+        self._monitor_thread_no_workers_sleep_time = (
+            monitor_thread_no_workers_sleep_time
+        )
         self._name = name
 
         self._work_buffer = six.moves.queue.Queue()
@@ -62,36 +67,47 @@ class BufferedDispatcher(object):
         self._flush_now()
 
     def shutdown(self):
-        self._dispatch_monitor_thread.kill()
+        concurrency.kill(self._dispatch_monitor_thread)
 
     def _flush(self):
         while True:
             while self._work_buffer.empty():
-                eventlet.greenthread.sleep(self._monitor_thread_empty_q_sleep_time)
-            while self._dispatcher_pool.free() <= 0:
-                eventlet.greenthread.sleep(self._monitor_thread_no_workers_sleep_time)
+                concurrency.sleep(self._monitor_thread_empty_q_sleep_time)
+            while not concurrency.is_green_pool_free(self._dispatcher_pool):
+                concurrency.sleep(self._monitor_thread_no_workers_sleep_time)
             self._flush_now()
 
     def _flush_now(self):
-        if self._dispatcher_pool.free() <= 0:
+        if not concurrency.is_green_pool_free(self._dispatcher_pool):
             now = time.time()
 
             if (now - self._pool_last_free_ts) >= POOL_BUSY_THRESHOLD_SECONDS:
-                LOG.info(POOL_BUSY_LOG_MESSAGE % (self.name, POOL_BUSY_THRESHOLD_SECONDS))
+                LOG.info(
+                    POOL_BUSY_LOG_MESSAGE % (self.name, POOL_BUSY_THRESHOLD_SECONDS)
+                )
 
             return
 
         # Update the time of when there were free threads available
         self._pool_last_free_ts = time.time()
 
-        while not self._work_buffer.empty() and self._dispatcher_pool.free() > 0:
+        while not self._work_buffer.empty() and concurrency.is_green_pool_free(
+            self._dispatcher_pool
+        ):
             (handler, args) = self._work_buffer.get_nowait()
-            self._dispatcher_pool.spawn(handler, *args)
+            concurrency.pool_spawn(self._dispatcher_pool, handler, *args)
 
     def __repr__(self):
-        free_count = self._dispatcher_pool.free()
-        values = (self.name, self._pool_limit, free_count, self._monitor_thread_empty_q_sleep_time,
-                  self._monitor_thread_no_workers_sleep_time)
-        return ('<BufferedDispatcher name=%s,dispatch_pool_size=%s,free_threads=%s,'
-                'monitor_thread_empty_q_sleep_time=%s,monitor_thread_no_workers_sleep_time=%s>' %
-                values)
+        free_count = concurrency.green_pool_free_count(self._dispatcher_pool)
+        values = (
+            self.name,
+            self._pool_limit,
+            free_count,
+            self._monitor_thread_empty_q_sleep_time,
+            self._monitor_thread_no_workers_sleep_time,
+        )
+        return (
+            "<BufferedDispatcher name=%s,dispatch_pool_size=%s,free_threads=%s,"
+            "monitor_thread_empty_q_sleep_time=%s,monitor_thread_no_workers_sleep_time=%s>"
+            % values
+        )

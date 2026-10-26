@@ -15,6 +15,7 @@
 
 from __future__ import absolute_import
 import copy
+import re
 
 import six
 
@@ -30,9 +31,7 @@ from st2common.util.templating import render_template_with_system_and_user_conte
 from st2common.util.config_parser import ContentPackConfigParser
 from st2common.exceptions.db import StackStormDBObjectNotFoundError
 
-__all__ = [
-    'ContentPackConfigLoader'
-]
+__all__ = ["ContentPackConfigLoader"]
 
 LOG = logging.getLogger(__name__)
 
@@ -79,15 +78,16 @@ class ContentPackConfigLoader(object):
 
         # 2. Retrieve values from "global" pack config file (if available) and resolve them if
         # necessary
-        config = self._get_values_for_config(config_schema_db=config_schema_db,
-                                             config_db=config_db)
+        config = self._get_values_for_config(
+            config_schema_db=config_schema_db, config_db=config_db
+        )
         result.update(config)
 
         return result
 
     def _get_values_for_config(self, config_schema_db, config_db):
-        schema_values = getattr(config_schema_db, 'attributes', {})
-        config_values = getattr(config_db, 'values', {})
+        schema_values = getattr(config_schema_db, "attributes", {})
+        config_values = getattr(config_db, "values", {})
 
         config = copy.deepcopy(config_values or {})
 
@@ -98,6 +98,120 @@ class ContentPackConfigLoader(object):
         # items which values are not provided / available in the config itself
         config = self._assign_default_values(schema=schema_values, config=config)
         return config
+
+    @staticmethod
+    def _get_object_properties_schema(object_schema, object_keys=None):
+        """
+        Create a schema for an object property using all of: properties,
+        patternProperties, and additionalProperties.
+
+        This 'flattens' properties, patternProperties, and additionalProperties
+        so that we can handle patternProperties and additionalProperties
+        as if they were defined in properties.
+        So, every key in object_keys will be assigned a schema
+        from properties, patternProperties, or additionalProperties.
+
+        NOTE: order of precedence: properties, patternProperties, additionalProperties
+        So, the additionalProperties schema is only used for keys that are not in
+        properties and that do not match any of the patterns in patternProperties.
+        And, patternProperties schemas only apply to keys missing from properties.
+
+        :rtype: ``dict``
+        """
+        # preserve the order in object_keys
+        flattened_properties_schema = {key: {} for key in object_keys}
+
+        # properties takes precedence over patternProperties and additionalProperties
+        properties_schema = object_schema.get("properties", {})
+        flattened_properties_schema.update(properties_schema)
+
+        # extra_keys has keys that may use patternProperties or additionalProperties
+        # we remove keys when they have been assigned a schema
+        extra_keys = set(object_keys) - set(properties_schema.keys())
+
+        if not extra_keys:
+            # nothing to check. Don't look at patternProperties or additionalProperties.
+            return flattened_properties_schema
+
+        # match each key against patternPropetties
+        pattern_properties = object_schema.get("patternProperties", {})
+        # patternProperties should be a dict if defined
+        if pattern_properties and isinstance(pattern_properties, dict):
+            # we need to match all extra_keys against all patterns
+            # and then compose the per-property schema from all
+            # the matched patterns' properties.
+            pattern_properties = {
+                re.compile(raw_pattern): pattern_schema
+                for raw_pattern, pattern_schema in pattern_properties.items()
+            }
+            for key in list(extra_keys):
+                key_schemas = []
+                for pattern, pattern_schema in pattern_properties.items():
+                    if pattern.search(key):
+                        key_schemas.append(pattern_schema)
+                if key_schemas:
+                    # This naive schema composition approximates allOf.
+                    # We can improve this later if someone provides examples that need
+                    # a better allOf schema implementation for patternProperties.
+                    composed_schema = {}
+                    for schema in key_schemas:
+                        composed_schema.update(schema)
+                    # update matched key
+                    flattened_properties_schema[key] = composed_schema
+                    # don't overwrite matched key's schema with additionalProperties
+                    extra_keys.remove(key)
+
+            if not extra_keys:
+                # nothing else to check. Don't look at additionalProperties.
+                return flattened_properties_schema
+
+        # fill in any remaining keys with additionalProperties
+        additional_properties = object_schema.get("additionalProperties", {})
+        # additionalProperties can be a boolean or a dict
+        if additional_properties and isinstance(additional_properties, dict):
+            # ensure that these keys are present in the object
+            for key in extra_keys:
+                flattened_properties_schema[key] = additional_properties
+
+        return flattened_properties_schema
+
+    @staticmethod
+    def _get_array_items_schema(array_schema, items_count=0):
+        """
+        Create a schema for array items using both additionalItems and items.
+
+        This 'flattens' items and additionalItems so that we can handle additionalItems
+        as if each additional item was defined in items.
+
+        The additionalItems schema will only be used if the items schema is shorter
+        than items_count. So, when additionalItems is defined, the items schema will be
+        extended to be at least as long as items_count.
+
+        :rtype: ``list``
+        """
+        flattened_items_schema = []
+        items_schema = array_schema.get("items", [])
+        if isinstance(items_schema, dict):
+            # with only one schema for all items, additionalItems will be ignored.
+            flattened_items_schema.extend([items_schema] * items_count)
+        else:
+            # items is a positional array of schemas
+            flattened_items_schema.extend(items_schema)
+
+        flattened_items_schema_count = len(flattened_items_schema)
+        if flattened_items_schema_count >= items_count:
+            # no additional items to account for.
+            return flattened_items_schema
+
+        additional_items = array_schema.get("additionalItems", {})
+        # additionalItems can be a boolean or a dict
+        if additional_items and isinstance(additional_items, dict):
+            # ensure that these indexes are present in the array
+            flattened_items_schema.extend(
+                [additional_items] * (items_count - flattened_items_schema_count)
+            )
+
+        return flattened_items_schema
 
     def _assign_dynamic_config_values(self, schema, config, parent_keys=None):
         """
@@ -121,34 +235,57 @@ class ContentPackConfigLoader(object):
             if config_is_dict:
                 # different schema for each key/value pair
                 schema_item = schema.get(config_item_key, {})
-            if config_is_list:
+            if config_is_list and isinstance(schema, list):
+                # positional schema for list items
+                try:
+                    schema_item = schema[config_item_key]
+                except IndexError:
+                    schema_item = {}
+            elif config_is_list:
                 # same schema is shared between every item in the list
                 schema_item = schema
 
             is_dictionary = isinstance(config_item_value, dict)
             is_list = isinstance(config_item_value, list)
 
+            # pass a copy of parent_keys so the loop doesn't add sibling keys
+            current_keys = parent_keys + [str(config_item_key)]
+
             # Inspect nested object properties
             if is_dictionary:
-                parent_keys += [str(config_item_key)]
-                self._assign_dynamic_config_values(schema=schema_item.get('properties', {}),
-                                                   config=config[config_item_key],
-                                                   parent_keys=parent_keys)
+                properties_schema = self._get_object_properties_schema(
+                    schema_item,
+                    object_keys=config_item_value.keys(),
+                )
+                self._assign_dynamic_config_values(
+                    schema=properties_schema,
+                    config=config[config_item_key],
+                    parent_keys=current_keys,
+                )
             # Inspect nested list items
             elif is_list:
-                parent_keys += [str(config_item_key)]
-                self._assign_dynamic_config_values(schema=schema_item.get('items', {}),
-                                                   config=config[config_item_key],
-                                                   parent_keys=parent_keys)
+                items_schema = self._get_array_items_schema(
+                    schema_item,
+                    items_count=len(config[config_item_key]),
+                )
+                self._assign_dynamic_config_values(
+                    schema=items_schema,
+                    config=config[config_item_key],
+                    parent_keys=current_keys,
+                )
             else:
-                is_jinja_expression = jinja_utils.is_jinja_expression(value=config_item_value)
+                is_jinja_expression = jinja_utils.is_jinja_expression(
+                    value=config_item_value
+                )
 
                 if is_jinja_expression:
                     # Resolve / render the Jinja template expression
-                    full_config_item_key = '.'.join(parent_keys + [str(config_item_key)])
-                    value = self._get_datastore_value_for_expression(key=full_config_item_key,
+                    full_config_item_key = ".".join(current_keys)
+                    value = self._get_datastore_value_for_expression(
+                        key=full_config_item_key,
                         value=config_item_value,
-                        config_schema_item=schema_item)
+                        config_schema_item=schema_item,
+                    )
 
                     config[config_item_key] = value
                 else:
@@ -164,27 +301,71 @@ class ContentPackConfigLoader(object):
 
         Note: This method mutates config argument in place.
 
-        :rtype: ``dict``
+        :rtype: ``dict|list``
         """
-        for schema_item_key, schema_item in six.iteritems(schema):
-            has_default_value = 'default' in schema_item
-            has_config_value = schema_item_key in config
+        schema_is_dict = isinstance(schema, dict)
+        iterator = schema.items() if schema_is_dict else enumerate(schema)
 
-            default_value = schema_item.get('default', None)
-            is_object = schema_item.get('type', None) == 'object'
-            has_properties = schema_item.get('properties', None)
+        # _get_*_schema ensures that schema_item is always a dict
+        for schema_item_key, schema_item in iterator:
+            has_default_value = "default" in schema_item
+            if isinstance(config, dict):
+                has_config_value = schema_item_key in config
+            else:
+                has_config_value = schema_item_key < len(config)
 
+            default_value = schema_item.get("default", None)
             if has_default_value and not has_config_value:
                 # Config value is not provided, but default value is, use a default value
                 config[schema_item_key] = default_value
 
-            # Inspect nested object properties
-            if is_object and has_properties:
-                if not config.get(schema_item_key, None):
-                    config[schema_item_key] = {}
+            try:
+                config_value = config[schema_item_key]
+            except (KeyError, IndexError):
+                config_value = None
 
-                self._assign_default_values(schema=schema_item['properties'],
-                                            config=config[schema_item_key])
+            schema_item_type = schema_item.get("type", None)
+
+            if schema_item_type == "object":
+                has_properties = schema_item.get("properties", None)
+                has_pattern_properties = schema_item.get("patternProperties", None)
+                has_additional_properties = schema_item.get(
+                    "additionalProperties", None
+                )
+
+                # Inspect nested object properties
+                if (
+                    has_properties
+                    or has_pattern_properties
+                    or has_additional_properties
+                ):
+                    if not config_value:
+                        config_value = config[schema_item_key] = {}
+
+                    properties_schema = self._get_object_properties_schema(
+                        schema_item,
+                        object_keys=config_value.keys(),
+                    )
+
+                    self._assign_default_values(
+                        schema=properties_schema, config=config_value
+                    )
+            elif schema_item_type == "array":
+                has_items = schema_item.get("items", None)
+                has_additional_items = schema_item.get("additionalItems", None)
+
+                # Inspect nested array items
+                if has_items or has_additional_items:
+                    if not config_value:
+                        config_value = config[schema_item_key] = []
+
+                    items_schema = self._get_array_items_schema(
+                        schema_item,
+                        items_count=len(config_value),
+                    )
+                    self._assign_default_values(
+                        schema=items_schema, config=config_value
+                    )
 
         return config
 
@@ -198,18 +379,33 @@ class ContentPackConfigLoader(object):
         from st2common.services.config import deserialize_key_value
 
         config_schema_item = config_schema_item or {}
-        secret = config_schema_item.get('secret', False)
-
+        secret = config_schema_item.get("secret", False)
+        if secret or "decrypt_kv" in value:
+            LOG.audit(
+                "User %s is decrypting the value for key %s from the config within pack %s",
+                self.user,
+                key,
+                self.pack_name,
+                extra={
+                    "user": self.user,
+                    "key_name": key,
+                    "pack_name": self.pack_name,
+                    "operation": "pack_config_value_decrypt",
+                },
+            )
         try:
-            value = render_template_with_system_and_user_context(value=value,
-                                                                 user=self.user)
+            value = render_template_with_system_and_user_context(
+                value=value, user=self.user
+            )
         except Exception as e:
             # Throw a more user-friendly exception on failed render
             exc_class = type(e)
             original_msg = six.text_type(e)
-            msg = ('Failed to render dynamic configuration value for key "%s" with value '
-                   '"%s" for pack "%s" config: %s %s ' % (key, value, self.pack_name,
-                                                          exc_class, original_msg))
+            msg = (
+                'Failed to render dynamic configuration value for key "%s" with value '
+                '"%s" for pack "%s" config: %s %s '
+                % (key, value, self.pack_name, exc_class, original_msg)
+            )
             raise RuntimeError(msg)
 
         if value:
@@ -222,21 +418,17 @@ class ContentPackConfigLoader(object):
 
 
 def get_config(pack, user):
-    """Returns config for given pack and user.
-    """
+    """Returns config for given pack and user."""
     LOG.debug('Attempting to get config for pack "%s" and user "%s"' % (pack, user))
     if pack and user:
-        LOG.debug('Pack and user found. Loading config.')
-        config_loader = ContentPackConfigLoader(
-            pack_name=pack,
-            user=user
-        )
+        LOG.debug("Pack and user found. Loading config.")
+        config_loader = ContentPackConfigLoader(pack_name=pack, user=user)
 
         config = config_loader.get_config()
 
     else:
         config = {}
 
-    LOG.debug('Config: %s', config)
+    LOG.debug("Config: %s", config)
 
     return config

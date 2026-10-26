@@ -1,7 +1,7 @@
 # Setup in CircleCI account the following ENV variables:
 # PACKAGECLOUD_ORGANIZATION (default: stackstorm)
 # PACKAGECLOUD_TOKEN
-version: 2
+version: 2.1
 jobs:
   # Run st2 Unit Tests
   unit:
@@ -43,9 +43,9 @@ jobs:
   # Run st2 Integration tests
   integration:
     docker:
-      - image: circleci/python:2.7
-      - image: mongo:3.4
-      - image: rabbitmq:3
+      - image: cimg/python:3.10
+      - image: mongo:8.2
+      - image: rabbitmq:4.2
     working_directory: ~/st2
     steps:
       - checkout
@@ -57,8 +57,9 @@ jobs:
           name: Install Mongo Shell
           command: |
             set -x
-            sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6
-            echo "deb http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main" | sudo tee /etc/apt/sources.list.d/mongodb-org-3.4.list
+            sudo apt-get -qq -y install gnupg curl
+            curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/mongodb-server-7.0.gpg
+            echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
             sudo apt-get -qq -y update
             sudo apt-get -qq -y install mongodb-org-shell
       - run:
@@ -79,9 +80,9 @@ jobs:
   # Run st2 Lint Checks
   lint:
     docker:
-      - image: circleci/python:2.7
-      - image: mongo:3.4
-      - image: rabbitmq:3
+      - image: cimg/python:3.10
+      - image: mongo:8.2
+      - image: rabbitmq:4.2
     working_directory: ~/st2
     steps:
       - checkout
@@ -113,36 +114,47 @@ jobs:
     resource_class: large
     docker:
       # The primary container is an instance of the first list image listed. Your build commands run in this container.
-      - image: circleci/python:2.7
+      - image: cimg/python:3.10
     working_directory: ~/st2
     environment:
-      - DISTROS: "xenial bionic el7 el8"
+      - DISTROS: "jammy noble el9 el10"
       - ST2_PACKAGES_REPO: https://github.com/StackStorm/st2-packages
       - ST2_PACKAGES: "st2"
       - ST2_CHECKOUT: 0
       - ST2_GITDIR: /tmp/st2
       - BASH_ENV: ~/.buildenv
+      - DOCKER_API_VERSION: "1.43"
     steps:
       - checkout
+      - run:
+          name: Install latest Docker Compose V2
+          command: |
+            # Docker repository is already included in cimg/python:3.10
+            sudo apt update
+            # install docker CLI and Docker Compose v2
+            sudo apt install docker-ce-cli docker-compose-plugin
       - setup_remote_docker:
           reusable: true    # default - false
           exclusive: true   # default - true
-          # Temporary workaround for Circle CI issue
-          # https://discuss.circleci.com/t/setup-remote-docker-connection-failures/26434
-          version: 18.05.0-ce
+          version: docker24
       - run:
           name: Docker version
           command: |
             set -x
             docker --version
-            docker-compose --version
+            docker compose version
       - run:
-          name: Download st2-packages repository
+          name: Clone and patch st2-packages repository
           command: |
             set -x
+            PIP_VERSION=$(grep ^PIP_VERSION Makefile | grep -o '[0-9.]*$')
+            echo "St2 makefile file pip version ${PIP_VERSION}"
             git clone ${ST2_PACKAGES_REPO} ~/st2-packages
             cd ~/st2-packages
-            git checkout ${CIRCLE_BRANCH} || true
+            echo "Patch PIP version used by dh_virtualenv"
+            sed -ri "s/^PIP_VERSION .*$/PIP_VERSION = ${PIP_VERSION}/" packages/st2/debian/rules
+            echo "Patch PIP version used by rpm spec"
+            sed -ri "s/install pip==[^[:space:]]+/install pip==${PIP_VERSION}/" rpmspec/package_venv.spec
       - run:
           name: Initialize packages Build Environment
           command: |
@@ -157,7 +169,7 @@ jobs:
           command: |
             set -x
             # Clean-up running containers
-            .circle/docker-compose2.sh clean
+            .circle/docker-compose.sh clean
             # Remove st2-packages-vol container
             docker rm -v --force st2-packages-vol || true
             # Clean-up any created volumes
@@ -169,34 +181,26 @@ jobs:
           name: Copy st2-packages files to build containers
           command: |
             # creating dummy container which will hold a volume with data files
-            docker create -v /root/st2-packages -v ${ST2_GITDIR} -v /root/build -v /var/log/st2 -v /root/.cache/pip -v /tmp/wheelhouse --name st2-packages-vol alpine:3.4 /bin/true
+            docker create -v /root/st2-packages -v ${ST2_GITDIR} -v /root/build -v /var/log/st2 -v /root/.cache/pip -v /tmp/wheelhouse --name st2-packages-vol alpine:3.12 /bin/true
             # copy st2-packages data files into this volume
             docker cp ~/st2-packages st2-packages-vol:/root
             # copy st2 source files into this volume
             docker cp . st2-packages-vol:${ST2_GITDIR}
       - run:
           name: Pull dependent Docker Images
-          command: .circle/docker-compose2.sh pull ${DISTRO}
+          command: .circle/docker-compose.sh pull ${DISTRO} || .circle/docker-compose.sh pull ${DISTRO}
           working_directory: ~/st2-packages
       - run:
           name: Build the ${DISTRO} Packages
           command: |
-            .circle/docker-compose2.sh build ${DISTRO}
+            .circle/docker-compose.sh build ${DISTRO}
             # Once build container finishes we can copy packages directly from it
             mkdir -p ~/st2/packages/${DISTRO}/log/
             docker cp st2-packages-vol:/root/build/. ~/st2/packages/${DISTRO}
           working_directory: ~/st2-packages
-#      # TODO: It works! (~0.5-1min speed-up) Enable CircleCI2.0 cache for pip and wheelhouse later
-#      - run:
-#          name: Build the ${DISTRO} Packages 2nd time (compare with pip/wheelhouse cached)
-#          command: |
-#            .circle/docker-compose2.sh build ${DISTRO}
-#            # Once build container finishes we can copy packages directly from it
-#            docker cp st2-packages-vol:/root/build /tmp/st2-packages
-#          working_directory: ~/st2-packages
       - run:
           name: Test the Packages
-          command: .circle/docker-compose2.sh test ${DISTRO}
+          command: .circle/docker-compose.sh test ${DISTRO}
           working_directory: ~/st2-packages
       - run:
           when: always
@@ -218,7 +222,7 @@ jobs:
           command: |
             set -x
             # Clean-up running containers
-            .circle/docker-compose2.sh clean
+            .circle/docker-compose.sh clean
             # Remove st2-packages-vol container
             docker rm -v --force st2-packages-vol || true
             # Clean-up any created volumes
@@ -229,10 +233,10 @@ jobs:
   deploy:
     docker:
       # The primary container is an instance of the first list image listed. Your build commands run in this container.
-      - image: circleci/ruby:2.4
+      - image: cimg/ruby:2.7
     working_directory: /tmp/deploy
     environment:
-      - DISTROS: "xenial bionic el7 el8"
+      - DISTROS: "jammy noble el9 el10"
     steps:
       - attach_workspace:
           at: .
@@ -276,4 +280,4 @@ experimental:
 
 notify:
   webhooks:
-    - url: https://ci-webhooks.stackstorm.net/webhooks/build/events
+    - url: https://ci-webhooks.stackstorm.com/webhooks/build/events

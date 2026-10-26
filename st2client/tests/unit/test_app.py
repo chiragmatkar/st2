@@ -17,7 +17,7 @@ from __future__ import absolute_import
 import os
 import getpass
 
-import unittest2
+import unittest
 import mock
 
 from st2client.base import BaseCLIApp
@@ -25,34 +25,34 @@ from st2client.base import BaseCLIApp
 USER = getpass.getuser()
 
 
-class BaseCLIAppTestCase(unittest2.TestCase):
-    @mock.patch('os.path.isfile', mock.Mock())
+class BaseCLIAppTestCase(unittest.TestCase):
+    @mock.patch("os.path.isfile", mock.Mock())
     def test_cli_config_file_path(self):
         app = BaseCLIApp()
         args = mock.Mock()
 
         # 1. Absolute path
-        args.config_file = '/tmp/full/abs/path/config.ini'
+        args.config_file = "/tmp/full/abs/path/config.ini"
         result = app._get_config_file_path(args=args)
         self.assertEqual(result, args.config_file)
 
-        args.config_file = '/home/user/st2/config.ini'
+        args.config_file = "/home/user/st2/config.ini"
         result = app._get_config_file_path(args=args)
         self.assertEqual(result, args.config_file)
 
         # 2. Path relative to user home directory, should get expanded
-        args.config_file = '~/.st2/config.ini'
+        args.config_file = "~/.st2/config.ini"
         result = app._get_config_file_path(args=args)
-        expected = os.path.join(os.path.expanduser('~' + USER), '.st2/config.ini')
+        expected = os.path.join(os.path.expanduser("~" + USER), ".st2/config.ini")
         self.assertEqual(result, expected)
 
         # 3. Relative path (should get converted to absolute one)
-        args.config_file = 'config.ini'
+        args.config_file = "config.ini"
         result = app._get_config_file_path(args=args)
-        expected = os.path.join(os.getcwd(), 'config.ini')
+        expected = os.path.join(os.getcwd(), "config.ini")
         self.assertEqual(result, expected)
 
-        args.config_file = '.st2/config.ini'
+        args.config_file = ".st2/config.ini"
         result = app._get_config_file_path(args=args)
-        expected = os.path.join(os.getcwd(), '.st2/config.ini')
+        expected = os.path.join(os.getcwd(), ".st2/config.ini")
         self.assertEqual(result, expected)

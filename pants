@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -eou pipefail
+
+echo 'WARNING: Using ./pants is deprecated.' >&2
+echo 'Once installed, please use `pants` instead of `./pants`.' >&2
+
+if ! command -v pants >/dev/null; then
+  echo 'Now running `./get-pants.sh` to install `pants` ...' >&2
+  echo
+  ./get-pants.sh
+fi
+
+exec pants $@

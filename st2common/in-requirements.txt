@@ -1,39 +1,61 @@
-# Remeber to list implicit packages here, otherwise version won't be fixated!
+# Remember to list implicit packages here, otherwise version won't be fixated!
 apscheduler
 dnspython
 python-dateutil
 eventlet
+gevent
 # used by eventlet
 greenlet
 jinja2
 jsonschema
 kombu
 mongoengine
+importlib_resources
 networkx
-git+https://github.com/StackStorm/orquesta.git@v1.1.1#egg=orquesta
+# used by networkx
+decorator
+orquesta@ git+https://github.com/StackStorm/orquesta.git
+st2-rbac-backend@ git+https://github.com/StackStorm/st2-rbac-backend.git@master
 oslo.config
 paramiko
+# pynacl is used by paramiko and version needs to be pinned
+pynacl
 pyyaml
 pymongo
+# used for optional network level compression for mongodb
+zstandard
+# mention cffi used by cryptography so we can control version
+cffi
 cryptography
 requests
+# urllib3 is a transitive dep
+urllib3
 retrying
 semver
 six
+tenacity
 tooz
 # Required by tooz - on new versions of tooz, all the backend dependencies need
 # to be installed manually
 zake
-ipaddr
+# default coordinator backend configured for tooz
+redis
 routes
-flex
+openapi-spec-validator
 webob
 jsonpath-rw
+pyOpenSSL
 python-statsd
-ujson
+ciso8601
+orjson
 # Note: amqp is used by kombu, this needs to be added here to be picked up by
 # requirements fixate script.
 amqp
 # Used by st2-pack-* commands
 gitpython
+gitdb
 lockfile
+# needed by requests
+chardet
+# needed by kombu (dh_virtualenv on ubuntu focal is failing to put tzdata in the wheelhouse)
+backports.zoneinfo[tzdata]; python_version<"3.9"

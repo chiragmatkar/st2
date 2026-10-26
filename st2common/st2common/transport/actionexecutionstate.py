@@ -17,22 +17,19 @@
 
 from __future__ import absolute_import
 
-from kombu import Exchange, Queue
-
 from st2common.transport import publishers
+from st2common.transport.kombu import Exchange, Queue
 
-__all__ = [
-    'ActionExecutionStatePublisher'
-]
+__all__ = ["ActionExecutionStatePublisher"]
 
-ACTIONEXECUTIONSTATE_XCHG = Exchange('st2.actionexecutionstate',
-                                     type='topic')
+ACTIONEXECUTIONSTATE_XCHG = Exchange("st2.actionexecutionstate", type="topic")
 
 
 class ActionExecutionStatePublisher(publishers.CUDPublisher):
-
     def __init__(self):
-        super(ActionExecutionStatePublisher, self).__init__(exchange=ACTIONEXECUTIONSTATE_XCHG)
+        super(ActionExecutionStatePublisher, self).__init__(
+            exchange=ACTIONEXECUTIONSTATE_XCHG
+        )
 
 
 def get_queue(name, routing_key):

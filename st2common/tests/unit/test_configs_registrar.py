@@ -15,9 +15,6 @@
 
 from __future__ import absolute_import
 
-import os
-
-import six
 import mock
 
 from st2common.content import utils as content_utils
@@ -27,18 +24,29 @@ from st2common.persistence.pack import Config
 from st2tests.api import SUPER_SECRET_PARAMETER
 
 from st2tests.base import CleanDbTestCase
-from st2tests import fixturesloader
+from st2tests.fixtures.packs.dummy_pack_1.fixture import (
+    PACK_NAME as DUMMY_PACK_1,
+    PACK_PATH as PACK_1_PATH,
+)
+from st2tests.fixtures.packs.dummy_pack_6.fixture import (
+    PACK_NAME as DUMMY_PACK_6,
+    PACK_PATH as PACK_6_PATH,
+)
+from st2tests.fixtures.packs.dummy_pack_11.fixture import (
+    PACK_NAME as DUMMY_PACK_11,
+    PACK_PATH as PACK_11_PATH,
+)
+from st2tests.fixtures.packs.dummy_pack_19.fixture import (
+    PACK_NAME as DUMMY_PACK_19,
+    PACK_PATH as PACK_19_PATH,
+)
+from st2tests.fixtures.packs.dummy_pack_22.fixture import (
+    PACK_NAME as DUMMY_PACK_22,
+    PACK_PATH as PACK_22_PATH,
+)
 
 
-__all__ = [
-    'ConfigsRegistrarTestCase'
-]
-
-PACK_1_PATH = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_1')
-PACK_6_PATH = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_6')
-PACK_19_PATH = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_19')
-PACK_11_PATH = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_11')
-PACK_22_PATH = os.path.join(fixturesloader.get_fixtures_packs_base_path(), 'dummy_pack_22')
+__all__ = ["ConfigsRegistrarTestCase"]
 
 
 class ConfigsRegistrarTestCase(CleanDbTestCase):
@@ -52,7 +60,7 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
 
         registrar = ConfigsRegistrar(use_pack_cache=False)
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_1': PACK_1_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_1: PACK_1_PATH}
         packs_base_paths = content_utils.get_packs_base_paths()
         registrar.register_from_packs(base_dirs=packs_base_paths)
 
@@ -64,9 +72,9 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(config_dbs), 1)
 
         config_db = config_dbs[0]
-        self.assertEqual(config_db.values['api_key'], '{{st2kv.user.api_key}}')
-        self.assertEqual(config_db.values['api_secret'], SUPER_SECRET_PARAMETER)
-        self.assertEqual(config_db.values['region'], 'us-west-1')
+        self.assertEqual(config_db.values["api_key"], "{{st2kv.user.api_key}}")
+        self.assertEqual(config_db.values["api_secret"], SUPER_SECRET_PARAMETER)
+        self.assertEqual(config_db.values["region"], "us-west-1")
 
     def test_register_all_configs_invalid_config_no_config_schema(self):
         # verify_ configs is on, but ConfigSchema for the pack doesn't exist so
@@ -81,7 +89,7 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
 
         registrar = ConfigsRegistrar(use_pack_cache=False, validate_configs=False)
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_6': PACK_6_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_6: PACK_6_PATH}
         packs_base_paths = content_utils.get_packs_base_paths()
         registrar.register_from_packs(base_dirs=packs_base_paths)
 
@@ -92,7 +100,9 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(pack_dbs), 1)
         self.assertEqual(len(config_dbs), 1)
 
-    def test_register_all_configs_with_config_schema_validation_validation_failure_1(self):
+    def test_register_all_configs_with_config_schema_validation_validation_failure_1(
+        self,
+    ):
         # Verify DB is empty
         pack_dbs = Pack.get_all()
         config_dbs = Config.get_all()
@@ -100,28 +110,32 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(pack_dbs), 0)
         self.assertEqual(len(config_dbs), 0)
 
-        registrar = ConfigsRegistrar(use_pack_cache=False, fail_on_failure=True,
-                                     validate_configs=True)
+        registrar = ConfigsRegistrar(
+            use_pack_cache=False, fail_on_failure=True, validate_configs=True
+        )
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_6': PACK_6_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_6: PACK_6_PATH}
 
         # Register ConfigSchema for pack
         registrar._register_pack_db = mock.Mock()
-        registrar._register_pack(pack_name='dummy_pack_5', pack_dir=PACK_6_PATH)
+        registrar._register_pack(pack_name="dummy_pack_5", pack_dir=PACK_6_PATH)
         packs_base_paths = content_utils.get_packs_base_paths()
 
-        if six.PY3:
-            expected_msg = ('Failed validating attribute "regions" in config for pack '
-                            '"dummy_pack_6" (.*?): 1000 is not of type \'array\'')
-        else:
-            expected_msg = ('Failed validating attribute "regions" in config for pack '
-                            '"dummy_pack_6" (.*?): 1000 is not of type u\'array\'')
+        expected_msg = (
+            'Failed validating attribute "regions" in config for pack '
+            "\"dummy_pack_6\" (.*?): 1000 is not of type 'array'"
+        )
 
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                registrar.register_from_packs,
-                                base_dirs=packs_base_paths)
+        self.assertRaisesRegex(
+            ValueError,
+            expected_msg,
+            registrar.register_from_packs,
+            base_dirs=packs_base_paths,
+        )
 
-    def test_register_all_configs_with_config_schema_validation_validation_failure_2(self):
+    def test_register_all_configs_with_config_schema_validation_validation_failure_2(
+        self,
+    ):
         # Verify DB is empty
         pack_dbs = Pack.get_all()
         config_dbs = Config.get_all()
@@ -129,30 +143,33 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(pack_dbs), 0)
         self.assertEqual(len(config_dbs), 0)
 
-        registrar = ConfigsRegistrar(use_pack_cache=False, fail_on_failure=True,
-                                     validate_configs=True)
+        registrar = ConfigsRegistrar(
+            use_pack_cache=False, fail_on_failure=True, validate_configs=True
+        )
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_19': PACK_19_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_19: PACK_19_PATH}
 
         # Register ConfigSchema for pack
         registrar._register_pack_db = mock.Mock()
-        registrar._register_pack(pack_name='dummy_pack_19', pack_dir=PACK_19_PATH)
+        registrar._register_pack(pack_name=DUMMY_PACK_19, pack_dir=PACK_19_PATH)
         packs_base_paths = content_utils.get_packs_base_paths()
 
-        if six.PY3:
-            expected_msg = ('Failed validating attribute "instances.0.alias" in config for pack '
-                            '"dummy_pack_19" (.*?): {\'not\': \'string\'} is not of type '
-                            '\'string\'')
-        else:
-            expected_msg = ('Failed validating attribute "instances.0.alias" in config for pack '
-                            '"dummy_pack_19" (.*?): {\'not\': \'string\'} is not of type '
-                            'u\'string\'')
+        expected_msg = (
+            'Failed validating attribute "instances.0.alias" in config for pack '
+            "\"dummy_pack_19\" (.*?): {'not': 'string'} is not of type "
+            "'string'"
+        )
 
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                registrar.register_from_packs,
-                                base_dirs=packs_base_paths)
+        self.assertRaisesRegex(
+            ValueError,
+            expected_msg,
+            registrar.register_from_packs,
+            base_dirs=packs_base_paths,
+        )
 
-    def test_register_all_configs_with_config_schema_validation_validation_failure_3(self):
+    def test_register_all_configs_with_config_schema_validation_validation_failure_3(
+        self,
+    ):
         # This test checks for values containing "decrypt_kv" jinja filter in the config
         # object where keys have "secret: True" set in the schema.
 
@@ -163,26 +180,34 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(pack_dbs), 0)
         self.assertEqual(len(config_dbs), 0)
 
-        registrar = ConfigsRegistrar(use_pack_cache=False, fail_on_failure=True,
-                                     validate_configs=True)
+        registrar = ConfigsRegistrar(
+            use_pack_cache=False, fail_on_failure=True, validate_configs=True
+        )
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_11': PACK_11_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_11: PACK_11_PATH}
 
         # Register ConfigSchema for pack
         registrar._register_pack_db = mock.Mock()
-        registrar._register_pack(pack_name='dummy_pack_11', pack_dir=PACK_11_PATH)
+        registrar._register_pack(pack_name=DUMMY_PACK_11, pack_dir=PACK_11_PATH)
         packs_base_paths = content_utils.get_packs_base_paths()
 
-        expected_msg = ('Values specified as "secret: True" in config schema are automatically '
-                        'decrypted by default. Use of "decrypt_kv" jinja filter is not allowed '
-                        'for such values. Please check the specified values in the config or '
-                        'the default values in the schema.')
+        expected_msg = (
+            'Values specified as "secret: True" in config schema are automatically '
+            'decrypted by default. Use of "decrypt_kv" jinja filter is not allowed '
+            "for such values. Please check the specified values in the config or "
+            "the default values in the schema."
+        )
 
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                registrar.register_from_packs,
-                                base_dirs=packs_base_paths)
+        self.assertRaisesRegex(
+            ValueError,
+            expected_msg,
+            registrar.register_from_packs,
+            base_dirs=packs_base_paths,
+        )
 
-    def test_register_all_configs_with_config_schema_validation_validation_failure_4(self):
+    def test_register_all_configs_with_config_schema_validation_validation_failure_4(
+        self,
+    ):
         # This test checks for default values containing "decrypt_kv" jinja filter for
         # keys which have "secret: True" set.
 
@@ -193,21 +218,27 @@ class ConfigsRegistrarTestCase(CleanDbTestCase):
         self.assertEqual(len(pack_dbs), 0)
         self.assertEqual(len(config_dbs), 0)
 
-        registrar = ConfigsRegistrar(use_pack_cache=False, fail_on_failure=True,
-                                     validate_configs=True)
+        registrar = ConfigsRegistrar(
+            use_pack_cache=False, fail_on_failure=True, validate_configs=True
+        )
         registrar._pack_loader.get_packs = mock.Mock()
-        registrar._pack_loader.get_packs.return_value = {'dummy_pack_22': PACK_22_PATH}
+        registrar._pack_loader.get_packs.return_value = {DUMMY_PACK_22: PACK_22_PATH}
 
         # Register ConfigSchema for pack
         registrar._register_pack_db = mock.Mock()
-        registrar._register_pack(pack_name='dummy_pack_22', pack_dir=PACK_22_PATH)
+        registrar._register_pack(pack_name=DUMMY_PACK_22, pack_dir=PACK_22_PATH)
         packs_base_paths = content_utils.get_packs_base_paths()
 
-        expected_msg = ('Values specified as "secret: True" in config schema are automatically '
-                        'decrypted by default. Use of "decrypt_kv" jinja filter is not allowed '
-                        'for such values. Please check the specified values in the config or '
-                        'the default values in the schema.')
+        expected_msg = (
+            'Values specified as "secret: True" in config schema are automatically '
+            'decrypted by default. Use of "decrypt_kv" jinja filter is not allowed '
+            "for such values. Please check the specified values in the config or "
+            "the default values in the schema."
+        )
 
-        self.assertRaisesRegexp(ValueError, expected_msg,
-                                registrar.register_from_packs,
-                                base_dirs=packs_base_paths)
+        self.assertRaisesRegex(
+            ValueError,
+            expected_msg,
+            registrar.register_from_packs,
+            base_dirs=packs_base_paths,
+        )
